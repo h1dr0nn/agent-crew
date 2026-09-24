@@ -120,3 +120,12 @@ def test_reset_after_reads_the_forms_providers_use():
     assert providers.reset_after("(reset after 1m 51s)") == 111
     assert providers.reset_after("reset after 2h 5m 0s") == 7500
     assert providers.reset_after("no reset here") is None
+
+
+def test_a_probe_reports_a_rate_limit_instead_of_waiting(providers_file, server, monkeypatch):
+    waited = []
+    monkeypatch.setattr(providers.time, "sleep", waited.append)
+    route = providers.routes(config.load_providers(), "writer")[0]
+    server.replies += [(503, '{"error":{"message":"[429]: rate_limit_error (reset after 1m 51s)"}}')]
+    ok, _, detail = providers.probe(route)
+    assert not ok and "rate limited, resets in 111s" in detail and waited == []

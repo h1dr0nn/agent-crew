@@ -184,7 +184,8 @@ def parse_reply(text: str) -> dict:
     return {"choices": [{"message": message}], "usage": usage}
 
 
-def complete(route: Route, messages: list, tools: list | None = None, timeout: int = 300, retries: int = 4) -> dict:
+def complete(route: Route, messages: list, tools: list | None = None, timeout: int = 300, retries: int = 4,
+             wait_rate_limit: bool = True) -> dict:
     """One chat completion over a route. Retries transient failures with
     backoff; raises QuotaExhausted when the provider says the allowance is
     spent, and RouteFailed when the route keeps failing."""
@@ -218,6 +219,9 @@ def complete(route: Route, messages: list, tools: list | None = None, timeout: i
             # sets the route aside until then, like an exhausted allowance.
             if RATE_LIMIT.search(text):
                 after = reset_after(text)
+                if not wait_rate_limit:
+                    raise RouteFailed(f"{route.name}: rate limited"
+                                      + (f", resets in {round(after)}s" if after is not None else "")) from None
                 if after is not None and after > WAIT_AT_MOST:
                     raise QuotaExhausted(text) from None
                 time.sleep(min(WAIT_AT_MOST, (after or 30) + 2))
@@ -241,7 +245,9 @@ def probe(route: Route) -> tuple[bool, float, str]:
     """A one-line request, for `crew config test`: does this route answer, and how fast."""
     started = time.time()
     try:
-        reply = complete(route, [{"role": "user", "content": "Reply with the single word: ok"}], retries=1, timeout=120)
+        # A probe reports a rate limit rather than waiting it out: it is a check, not work.
+        reply = complete(route, [{"role": "user", "content": "Reply with the single word: ok"}], retries=1, timeout=60,
+                         wait_rate_limit=False)
         text = (reply["choices"][0]["message"].get("content") or "").strip()
         return True, time.time() - started, text[:40]
     except QuotaExhausted as error:

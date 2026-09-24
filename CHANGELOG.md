@@ -4,6 +4,12 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.2 - 2026-09-24
+
+### Fixed
+- `crew config test` reports a rate-limited route with its reset time at once
+  instead of waiting up to five minutes for it; workers still wait it out.
+
 ## 1.5.1 - 2026-09-24
 
 ### Changed
