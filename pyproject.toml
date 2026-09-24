@@ -1,0 +1,24 @@
+[project]
+name = "agent-crew"
+version = "0.1.0"
+description = "Delegate small coding tasks to OpenAI-compatible models from Claude Code, and check their work"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+crew = "crew.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["crew"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

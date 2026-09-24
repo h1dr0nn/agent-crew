@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/shim.py\" 2>/dev/null || python \"${CLAUDE_PLUGIN_ROOT}/scripts/shim.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
