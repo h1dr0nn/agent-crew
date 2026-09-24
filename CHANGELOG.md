@@ -4,6 +4,21 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.0 - 2026-09-24
+
+### Added
+- `crew calibrate` and `/agent-crew:calibrate`: the repository's work mix
+  from its history, then every pool model redoes a small real commit per
+  kind under that kind's verify, and says which kinds suit it. Results go to
+  `.agent-crew/profile.json`, and `crew run --verify <kind>` tries the
+  models that passed that kind first. `crew profile` shows them.
+
+### Fixed
+- A router that wraps an upstream 429 in a 502 or 503 is read as an
+  exhausted allowance with its reset time, not retried as a transient error.
+- Replies with a stray `data: [DONE]` after the JSON, or sent as server-sent
+  events to a non-streaming request, are read correctly.
+
 ## 1.2.0 - 2026-09-24
 
 ### Changed

@@ -16,6 +16,8 @@
     crew pack PROMPT --task NAME      print a prompt with its directives inlined
     crew metrics LOG                  where a run's time and tokens went
     crew template [NAME]              print a built-in prompt template, or list them
+    crew calibrate [--dry-run]        measure which pool model does each kind of this repository's work best
+    crew profile                      what the last calibration measured, and the model order per kind
     crew doctor                       check Python, git, the providers file, keys and this repository
     crew shim [--path]                (re)write the `crew` launcher; --path also puts it on PATH
 """
@@ -32,7 +34,7 @@ import subprocess
 import sys
 import time
 
-from crew import __version__, agent, checks, config, land, metrics, pack, procs, providers, review, setup, worktree
+from crew import __version__, agent, calibrate, checks, config, land, metrics, pack, procs, providers, review, setup, worktree
 
 EXAMPLE_PROVIDERS = '''# Agent Crew: the endpoint, its key and the model pool, all in this one file.
 # It lives in your home directory, outside every repository. Several keys are
@@ -206,6 +208,10 @@ def cmd_run(args) -> int:
     verify = agent.make_verify(command, boundary, args.base or project.branch, project.checks, project.source_suffixes,
                                settings.verify_timeout, project.ignore_strays)
     chain = providers.routes(config.load_providers(), args.role, args.model)
+    order = calibrate.preferred(project, args.verify) if args.model == "auto" and args.role == "writer" else []
+    if order:
+        # The models calibration measured best at this kind of work go first, the rest keep their order.
+        chain.sort(key=lambda route: order.index(route.model.id) if route.model.id in order else len(order))
     running = config.state_dir() / "running"
     running.mkdir(exist_ok=True)
     lock = running / f"{name}.json"
@@ -457,6 +463,50 @@ def cmd_metrics(args) -> int:
     return 0
 
 
+def cmd_calibrate(args) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
+    project = config.load_project()
+    loaded = config.load_providers()
+    wanted = _split(args.models)
+    models = [m for m in loaded.models if not wanted or m.id in wanted]
+    unknown = sorted(set(wanted) - {m.id for m in models})
+    if unknown:
+        raise config.ConfigError(f"not in the pool: {', '.join(unknown)}")
+    kinds = _split(args.kinds)
+    missing = [k for k in kinds if k not in project.verify]
+    if missing:
+        raise config.ConfigError(f"no [verify] {', '.join(missing)} in {config.PROJECT_FILE}")
+    profile = calibrate.calibrate(project, models, kinds, args.per_kind, args.dry_run,
+                                  log=lambda line: print(line, flush=True))
+    if args.dry_run:
+        _print({"mix": profile["mix"], "probes": profile["probes"], "models": [m.id for m in models]})
+        return 0
+    path = calibrate.save(project, profile)
+    print(f"wrote {path}")
+    return cmd_profile(args)
+
+
+def cmd_profile(args) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
+    project = config.load_project()
+    profile = calibrate.load(project)
+    if not profile:
+        print("no calibration yet: run `crew calibrate` (or /agent-crew:calibrate)")
+        return 0
+    print(f"measured {profile.get('measured_at')}")
+    print("work mix: " + ", ".join(f"{k} {round(v * 100)}%" for k, v in profile.get("mix", {}).items()))
+    for model, entry in profile.get("models", {}).items():
+        if entry.get("unavailable"):
+            print(f"  {model:40} unavailable")
+            continue
+        cells = [f"{k} {r['passed']}/{r['of']}" for k, r in entry.get("kinds", {}).items()]
+        rank = entry.get("self", {}).get("rank")
+        print(f"  {model:40} {'  '.join(cells)}" + (f"   says it suits: {', '.join(rank)}" if rank else ""))
+    for kind, order in profile.get("prefer", {}).items():
+        print(f"{kind}: " + (" -> ".join(order) or "no model passed; the pool order is used"))
+    return 0
+
+
 def cmd_template(args) -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     if not args.name:
@@ -648,6 +698,16 @@ def parser() -> argparse.ArgumentParser:
     p = sub.add_parser("template", help="print a built-in prompt template")
     p.add_argument("name", nargs="?")
     p.set_defaults(func=cmd_template)
+
+    p = sub.add_parser("calibrate", help="measure which model does each kind of this repository's work best")
+    p.add_argument("--kinds", help="comma-separated verify kinds (default: the biggest in the work mix, up to 3)")
+    p.add_argument("--models", help="comma-separated pool models (default: the whole pool)")
+    p.add_argument("--per-kind", type=int, default=1, help="probes per kind (default 1)")
+    p.add_argument("--dry-run", action="store_true", help="show the work mix and the probes, run nothing")
+    p.set_defaults(func=cmd_calibrate)
+
+    p = sub.add_parser("profile", help="what calibration measured")
+    p.set_defaults(func=cmd_profile)
 
     p = sub.add_parser("doctor", help="check the setup")
     p.set_defaults(func=cmd_doctor)

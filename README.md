@@ -170,10 +170,25 @@ Invoke as `/agent-crew:<name>`.
 | `adversarial-review` | the same, challenging the approach, assumptions and failure modes |
 | `land` | check a finished task, then land it as one commit |
 | `review-gate` | turn the stop-time review gate on or off |
+| `calibrate` | which pool model does each kind of this repository's work best, measured on its own commits |
 
 Claude also uses `conductor` (the whole method), `worker-prompting` (how to
 write tasks weak models finish) and `result-handling` on its own, and the
 `crew-worker` subagent hands a bounded task to a worker from a subagent.
+
+## Calibration
+
+`crew calibrate` (or `/agent-crew:calibrate`) reads the repository's history
+for its work mix, the share of recent change in each verify kind. For each
+kind it picks a small real commit that touches only that kind and replays it:
+a worktree starts from the commit with its code files put back as they were
+before it (the commit's tests stay, and fail until the change is made again),
+and every model in the pool is asked to redo it under that kind's verify.
+Each model is also asked which of the kinds it thinks suit it. The results go
+to `.agent-crew/profile.json`: passes, steps, minutes and tokens per model
+and kind. From then on `crew run --verify <kind>` tries the models that
+passed that kind first, best first. `crew profile` shows the table; `--dry-run`
+shows the mix and the probes without running anything.
 
 ## Stop-time review gate
 
@@ -208,6 +223,8 @@ stop costs one reviewer request and its wait.
 | `crew pack PROMPT --task NAME` | print a prompt with its directives inlined |
 | `crew metrics LOG` | a run's time and token summary |
 | `crew template [NAME]` | list or print the built-in templates |
+| `crew calibrate [--kinds ...] [--models ...] [--dry-run]` | measure the pool on this repository's own commits |
+| `crew profile` | what calibration measured, and the model order per kind |
 | `crew doctor` | check the whole setup |
 | `crew shim [--path]` | rewrite the launcher; `--path` puts it on PATH |
 

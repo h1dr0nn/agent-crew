@@ -64,3 +64,27 @@ def test_missing_file_and_bad_model_reference(crew_home):
     (crew_home / "providers.toml").write_text('[[model]]\nid = "m"\nprovider = "ghost"\n', encoding="utf-8")
     with pytest.raises(config.ConfigError):
         config.load_providers()
+
+
+def test_replies_with_a_trailing_done_or_as_events_are_read():
+    single = '{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{}}data: [DONE]\n\n'
+    assert providers.parse_reply(single)["choices"][0]["message"]["content"] == "ok"
+    events = "\n".join([
+        'data: {"choices":[{"delta":{"role":"assistant","content":"he"}}]}',
+        'data: {"choices":[{"delta":{"content":"llo","tool_calls":[{"index":0,"id":"c1","function":{"name":"fin","arguments":"{\\"a\\""}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"ish","arguments":":1}"}}]}}],"usage":{"prompt_tokens":3}}',
+        "data: [DONE]"])
+    reply = providers.parse_reply(events)
+    message = reply["choices"][0]["message"]
+    assert message["content"] == "hello" and reply["usage"] == {"prompt_tokens": 3}
+    assert message["tool_calls"][0]["function"] == {"name": "finish", "arguments": '{"a":1}'}
+
+
+def test_a_quota_error_wrapped_in_a_503_is_an_exhausted_allowance(providers_file, server):
+    body = ('{"error":{"message":"[429]: You\'ve used this period\'s free allowance. Your next rolling 7-day '
+            'period starts at 2999-09-30T11:31:07.931174+00:00.","code":"free_tier_limit_reached"}}')
+    server.replies += [(503, body)]
+    route = providers.routes(config.load_providers(), "writer")[0]
+    with pytest.raises(providers.QuotaExhausted):
+        providers.complete(route, [{"role": "user", "content": "x"}], retries=3)
+    assert len(server.requests) == 1  # not retried as if it were transient

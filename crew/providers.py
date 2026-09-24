@@ -132,6 +132,44 @@ def routes(providers: config.Providers, role: str, model: str = "auto") -> list[
     return found
 
 
+def parse_reply(text: str) -> dict:
+    """A chat completion from a response body. Routers do not all answer the
+    same way to a non-streaming request: some send the JSON object and then a
+    stray `data: [DONE]`, some send server-sent events. Accept all three."""
+    text = text.strip()
+    if text.startswith("{"):
+        reply, _ = json.JSONDecoder().raw_decode(text)
+        return reply
+    chunks = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("data:") and line[5:].strip() not in ("", "[DONE]"):
+            chunks.append(json.loads(line[5:].strip()))
+    if not chunks:
+        raise json.JSONDecodeError("no JSON in the reply", text[:200], 0)
+    if any(c.get("choices") and "message" in c["choices"][0] for c in chunks):
+        return next(c for c in chunks if c.get("choices") and "message" in c["choices"][0])
+    # Streamed deltas: put the message back together.
+    message: dict = {"role": "assistant", "content": ""}
+    calls: dict[int, dict] = {}
+    usage = {}
+    for chunk in chunks:
+        usage = chunk.get("usage") or usage
+        for choice in chunk.get("choices") or []:
+            delta = choice.get("delta") or {}
+            message["content"] += delta.get("content") or ""
+            for call in delta.get("tool_calls") or []:
+                slot = calls.setdefault(call.get("index", 0), {"id": "", "type": "function",
+                                                               "function": {"name": "", "arguments": ""}})
+                slot["id"] = call.get("id") or slot["id"]
+                function = call.get("function") or {}
+                slot["function"]["name"] += function.get("name") or ""
+                slot["function"]["arguments"] += function.get("arguments") or ""
+    if calls:
+        message["tool_calls"] = [calls[i] for i in sorted(calls)]
+    return {"choices": [{"message": message}], "usage": usage}
+
+
 def complete(route: Route, messages: list, tools: list | None = None, timeout: int = 300, retries: int = 4) -> dict:
     """One chat completion over a route. Retries transient failures with
     backoff; raises QuotaExhausted when the provider says the allowance is
@@ -150,7 +188,7 @@ def complete(route: Route, messages: list, tools: list | None = None, timeout: i
         started = time.time()
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                reply = json.load(response)
+                reply = parse_reply(response.read().decode("utf-8", errors="replace"))
             record_latency(route.model.id, time.time() - started)
             if not reply.get("choices"):
                 raise RouteFailed(f"{route.name}: reply had no choices: {json.dumps(reply)[:300]}")
@@ -158,7 +196,8 @@ def complete(route: Route, messages: list, tools: list | None = None, timeout: i
         except urllib.error.HTTPError as error:
             text = error.read().decode("utf-8", errors="replace")
             last = f"HTTP {error.code}: {text[:300]}"
-            if error.code in (402, 403, 429) and QUOTA_WORDS.search(text):
+            # A router may wrap the upstream's 429 in a 502 or 503; the words say what it is.
+            if (error.code in (402, 403, 429) or error.code >= 500) and QUOTA_WORDS.search(text):
                 raise QuotaExhausted(text) from None
             if error.code in (401,):
                 raise RouteFailed(f"{route.name}: the key was refused ({last})") from None
