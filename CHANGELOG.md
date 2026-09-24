@@ -4,6 +4,15 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.0 - 2026-09-24
+
+### Changed
+- One file holds the whole setup: `providers.toml` takes the key itself
+  (`api_key` / `api_keys`) next to the endpoint and the model pool. Variables
+  and key files still work.
+- `crew doctor` counts a PATH entry made after Claude Code started, and only
+  compares the pool with the endpoint's models when the endpoint answered.
+
 ## 1.1.0 - 2026-09-24
 
 ### Added

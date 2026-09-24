@@ -34,10 +34,10 @@ import time
 
 from crew import __version__, agent, checks, config, land, metrics, pack, procs, providers, review, setup, worktree
 
-EXAMPLE_PROVIDERS = '''# Agent Crew providers. Keys never go in this file: name the environment
-# variables that hold them (api_key_envs), or a file with one key per line
-# (api_key_file). Several keys on one provider are used in turn, and a key
-# that runs out of an allowance is skipped until the provider says it resets.
+EXAMPLE_PROVIDERS = '''# Agent Crew: the endpoint, its key and the model pool, all in this one file.
+# It lives in your home directory, outside every repository. Several keys are
+# used in turn, and a key that runs out of an allowance is skipped until the
+# provider says it resets. `/agent-crew:setup` in Claude Code fills this in.
 
 [defaults]
 # "auto" picks, per role, the models allowed that role, by priority then by
@@ -49,7 +49,7 @@ reviewer = "auto"
 [[provider]]
 name = "router"
 base_url = "http://localhost:20128/v1"   # any OpenAI-compatible endpoint
-api_key_envs = ["CREW_ROUTER_KEY"]
+api_keys = [""]                          # paste the key between the quotes; [] if none is needed
 
 [[model]]
 id = "your-fast-coding-model"
@@ -118,7 +118,9 @@ def cmd_config(args) -> int:
         if args.base_url:
             if not (args.force or setup.unconfigured(path)):
                 raise config.ConfigError(f"{path} is already configured; pass --force to replace it")
-            text = setup.providers_file(args.name, args.base_url, args.key_env, _split(args.writer), _split(args.reviewer))
+            status, _ = setup.list_models(args.base_url)
+            text = setup.providers_file(args.name, args.base_url, args.key_env, _split(args.writer), _split(args.reviewer),
+                                        needs_key=status != "ok")
             path.write_text(text, encoding="utf-8", newline="\n")
             print(f"wrote {path}")
             return cmd_config(argparse.Namespace(action="show"))
@@ -357,8 +359,7 @@ def setup_hint() -> str | None:
         return "Agent Crew needs its models chosen: run /agent-crew:setup (it finds your router and lists them)."
     keyless = [p.name for p in loaded.providers.values() if not p.keys()]
     if keyless:
-        return (f"Agent Crew: no API key found for {', '.join(keyless)}; set the variables named in {path}, "
-                "restart Claude Code, then run /agent-crew:doctor.")
+        return f"Agent Crew: paste the API key for {', '.join(keyless)} into api_keys in {path}."
     return None
 
 
@@ -480,7 +481,9 @@ def cmd_doctor(args) -> int:
     report(git is not None, f"git {'at ' + git if git else 'not found'}", "install git and put it on PATH")
     launcher = config.home() / "bin" / ("crew.cmd" if os.name == "nt" else "crew")
     report(launcher.exists(), f"launcher {launcher}", "run `crew shim`, or start a new Claude Code session")
-    on_path = shutil.which("crew") is not None
+    # A PATH changed after Claude Code started is only in the registry until it restarts.
+    on_path = shutil.which("crew") is not None or str(launcher.parent).lower() in (
+        (config._windows_user_env("Path") or "").lower())
     report(on_path, "crew on PATH" if on_path else "crew not on PATH",
            f"call the launcher by its path, or add {launcher.parent} to PATH", note=True)
     try:
@@ -491,14 +494,15 @@ def cmd_doctor(args) -> int:
             keys = provider.keys()
             labels = [label for label, _ in keys]
             report(bool(labels), f"provider {provider.name}: {'no key needed' if labels == ['no-key'] else f'{len(labels)} key(s) found'}",
-                   f"set {' or '.join(provider.key_envs) or provider.key_file}")
+                   f"paste the key into api_keys in {config.providers_path()}")
             status, models = setup.list_models(provider.base_url, keys[0][1] if keys else None)
             report(status == "ok", f"provider {provider.name}: {provider.base_url} {status}"
                    + (f", {len(models)} models" if models else ""),
                    "start it, or fix base_url" if status == "down" else "the key was refused")
-            missing = [m.id for m in loaded.models if m.provider == provider.name and models and m.id not in models]
-            report(not missing, f"provider {provider.name}: every configured model is offered",
-                   f"not offered: {', '.join(missing)}")
+            if status == "ok":
+                missing = [m.id for m in loaded.models if m.provider == provider.name and m.id not in models]
+                report(not missing, f"provider {provider.name}: every model in the pool is offered",
+                       f"not offered: {', '.join(missing)}")
         for role in ("writer", "reviewer"):
             chain = providers.routes(loaded, role)
             report(bool(chain), f"{role}: {len(chain)} usable route(s)",

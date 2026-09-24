@@ -81,17 +81,24 @@ def _toml_list(items: list[str]) -> str:
     return "[" + ", ".join(json.dumps(i) for i in items) + "]"
 
 
-def providers_file(name: str, base_url: str, key_env: str | None, writers: list[str], reviewers: list[str]) -> str:
-    """A providers file for one endpoint. A model named as both writer and
-    reviewer gets both roles; writers are tried in the order given, then reviewers."""
+def providers_file(name: str, base_url: str, key_env: str | None, writers: list[str], reviewers: list[str],
+                   needs_key: bool = True) -> str:
+    """The whole setup in one file: the endpoint, its key, and the pool of
+    models crew may use (nothing outside it is ever called). A model named as
+    both writer and reviewer gets both roles; order is priority."""
     if not writers or not reviewers:
         raise config.ConfigError("name at least one writer and one reviewer model")
-    key_line = (f"api_key_envs = [{json.dumps(key_env)}]   # set it with: setx {key_env} \"<key>\""
-                if key_env else "api_key_envs = []   # this endpoint needs no key")
-    lines = ["# Agent Crew providers, written by `crew config init`. Edit freely.",
-             "# Keys never go in this file; name the variables that hold them.", "",
+    if not needs_key:
+        key_lines = ["api_keys = []   # this endpoint needs no key"]
+    else:
+        key_lines = ['api_keys = [""]   # paste the key between the quotes; several keys: ["k1", "k2"], used in turn']
+        if key_env:
+            key_lines.append(f"api_key_envs = [{json.dumps(key_env)}]   # or keep it in this environment variable")
+    lines = ["# Agent Crew: the endpoint, its key and the model pool, all in this one file.",
+             "# It lives in your home directory, outside every repository. Edit freely.", "",
              "[defaults]", 'writer = "auto"     # by priority, then measured latency', 'reviewer = "auto"', "",
-             "[[provider]]", f"name = {json.dumps(name)}", f"base_url = {json.dumps(base_url.rstrip('/'))}", key_line]
+             "[[provider]]", f"name = {json.dumps(name)}", f"base_url = {json.dumps(base_url.rstrip('/'))}", *key_lines,
+             "", "# The pool: crew only ever calls these models."]
     order = list(dict.fromkeys(writers + reviewers))
     for index, model in enumerate(order):
         roles = [r for r, group in (("writer", writers), ("reviewer", reviewers)) if model in group]

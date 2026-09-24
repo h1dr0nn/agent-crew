@@ -27,26 +27,27 @@ tool); it needs nothing on PATH.
    use (their router's `/v1` URL, or a hosted API such as
    `https://openrouter.ai/api/v1`), and if it is a local router, remind them
    to start it. Re-check a URL with `crew config detect` after they answer.
-2. **Key.** `ok` means it answered without a key: no key is needed. For
-   `needs-key` or a hosted API, the key lives in an environment variable the
-   user sets; you never see, type or store its value. Name the variable
-   `CREW_<PROVIDER>_KEY` and give the user the single command to run in their
-   own terminal (`setx CREW_9ROUTER_KEY "<key>"` on Windows, an `export` line
-   in their shell profile elsewhere). crew reads a `setx` variable at once; no
-   restart is needed. Wait for them to say it is done.
-3. **Models.** Take the model list from `crew config detect` (after the key
-   is set, if one was needed). Ask the user once with `AskUserQuestion`: the
+2. **Models.** `ok` means it answered without a key. For `needs-key` the
+   model list needs the key, so ask the user to name the models they want in
+   the pool (they can copy them from their router's dashboard). Otherwise
+   take the list from `crew config detect`. Everything crew calls comes from
+   this pool and nothing else. Ask the user once with `AskUserQuestion`: the
    writer models (fast coding models) and the reviewer model (a careful model
    from a different family than the writers). Recommend a choice from the
    names, labelled `(Recommended)`, and allow several writers, best first.
-4. **Write the providers file:**
+3. **Write the one config file** (`~/.agent-crew/providers.toml`: endpoint,
+   key slot and the model pool):
 
    ```bash
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/crew" config init --name <provider> --base-url <url> [--key-env <VAR>] --writer "<a,b>" --reviewer "<c>"
+   sh "${CLAUDE_PLUGIN_ROOT}/scripts/crew" config init --name <provider> --base-url <url> --writer "<a,b>" --reviewer "<c>"
    ```
 
    It replaces the file only while it is still the template; if the user has
    a configured file, ask before adding `--force`.
+4. **Key.** If the endpoint needs one, the file has `api_keys = [""]`. Never
+   type, store or repeat a key yourself, even one the user pastes into chat
+   (tell them to replace it, since chat keeps it). Give them the file's path
+   and ask them to paste the key between the quotes, then wait.
 5. **Probe:** `crew config test`. Every route should answer `ok`. Fix what a
    failing one says (an unknown model id, a refused key).
 6. **This repository.** If `.agent-crew/project.toml` is missing, run

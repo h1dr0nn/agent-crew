@@ -275,3 +275,24 @@ def test_session_start_creates_the_providers_file_and_tells_claude(crew_home, ca
     assert (crew_home / "providers.toml").exists()
     assert "/agent-crew:setup" in out["systemMessage"]
     assert "agent-crew:setup" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_keys_can_live_in_the_providers_file(crew_home, server):
+    from crew import providers as providers_module
+    crew_home.mkdir(parents=True, exist_ok=True)
+    (crew_home / "providers.toml").write_text(
+        f'[[provider]]\nname = "r"\nbase_url = "{server.url}"\napi_keys = ["k-one", "", "k-two"]\n'
+        '[[model]]\nid = "m"\nprovider = "r"\nroles = ["writer"]\n', encoding="utf-8")
+    chain = providers_module.routes(config.load_providers(), "writer")
+    assert [r.key_label for r in chain] == ["r.key1", "r.key3"]
+    server.replies += ["hi"]
+    providers_module.complete(chain[0], [{"role": "user", "content": "x"}])
+    assert server.requests[-1]["auth"] == "Bearer k-one"
+
+
+def test_an_empty_key_slot_is_reported(crew_home, capsys):
+    crew_home.mkdir(parents=True, exist_ok=True)
+    (crew_home / "providers.toml").write_text(
+        '[[provider]]\nname = "r"\nbase_url = "http://127.0.0.1:9/v1"\napi_keys = [""]\n'
+        '[[model]]\nid = "m"\nprovider = "r"\nroles = ["writer", "reviewer"]\n', encoding="utf-8")
+    assert "paste the API key for r" in cli.setup_hint()

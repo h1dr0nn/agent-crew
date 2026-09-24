@@ -54,12 +54,21 @@ class ScriptedServer:
 
     def __init__(self):
         self.replies: list = []
+        self.models = ["fast", "campaign"]
         self.requests: list = []
         server = self
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+
+            def do_GET(self):  # /models, as `crew config detect` and `crew doctor` ask
+                data = json.dumps({"data": [{"id": m} for m in server.models]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
 
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))

@@ -47,15 +47,19 @@ class Provider:
     base_url: str
     key_envs: list[str] = field(default_factory=list)
     key_file: str | None = None
+    inline_keys: list[str] = field(default_factory=list)
     headers: dict[str, str] = field(default_factory=dict)
 
     def keys(self) -> list[tuple[str, str]]:
         """Every key this provider can use, as (label, key). The label names the
         key in state and logs without revealing it. A provider that names no
         key at all (a local router without auth) has one empty key."""
-        if not self.key_envs and not self.key_file:
+        if not self.key_envs and not self.key_file and not self.inline_keys:
             return [("no-key", "")]
         found: list[tuple[str, str]] = []
+        for index, value in enumerate(self.inline_keys, 1):
+            if value.strip():
+                found.append((f"{self.name}.key{index}", value.strip()))
         for var in self.key_envs:
             value = os.environ.get(var) or _windows_user_env(var)
             if value:
@@ -109,6 +113,7 @@ def load_providers(path: pathlib.Path | None = None) -> Providers:
                 base_url=entry["base_url"].rstrip("/"),
                 key_envs=list(entry.get("api_key_envs", [])) + ([entry["api_key_env"]] if "api_key_env" in entry else []),
                 key_file=entry.get("api_key_file"),
+                inline_keys=[str(k) for k in ([entry["api_key"]] if "api_key" in entry else []) + list(entry.get("api_keys", []))],
                 headers=dict(entry.get("headers", {})),
             )
         except KeyError as missing:

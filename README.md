@@ -74,7 +74,7 @@ reviewer = "auto"
 [[provider]]
 name = "router"
 base_url = "http://localhost:20128/v1"   # any OpenAI-compatible endpoint
-api_key_envs = ["CREW_ROUTER_KEY"]       # or api_key_file = "~/.crew-keys"
+api_keys = ["sk-..."]                    # or api_key_envs = ["VAR"], api_key_file = "~/keys.txt"
 
 [[model]]
 id = "fast-coder"
@@ -90,8 +90,10 @@ roles = ["reviewer", "writer"]
 priority = 20
 ```
 
-Keys never go in this file: name the environment variables that hold them, or
-a key file with one key per line; `api_key_envs = []` means no key. Several keys on one provider are used in
+This one file holds the whole setup. It lives in your home directory, outside
+every repository, so the key in it is never committed; keep it out of
+anything you share. The `[[model]]` entries are the pool: crew calls those
+models and no others. `api_keys = []` means the endpoint needs no key. Several keys on one provider are used in
 turn. `crew config test` probes every route and records its latency; `auto`
 orders models by priority, then by measured latency. `crew config show` prints
 the route chain each role will use.
