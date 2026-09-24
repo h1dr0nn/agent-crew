@@ -91,11 +91,14 @@ def cmd_init(args) -> int:
     root = pathlib.Path(args.root or ".").resolve()
     path = root / config.PROJECT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Task prompts are working files: keep them next to the project, out of git.
+    # Task prompts are working files, and the calibration profile measures this
+    # machine's pool rather than the repository: both stay out of git.
     ignore = path.parent / ".gitignore"
-    if "prompts/" not in (ignore.read_text(encoding="utf-8") if ignore.exists() else ""):
+    present = ignore.read_text(encoding="utf-8").split() if ignore.exists() else []
+    missing = [entry for entry in ("prompts/", "profile.json") if entry not in present]
+    if missing:
         with open(ignore, "a", encoding="utf-8", newline="\n") as handle:
-            handle.write("prompts/\n")
+            handle.write("".join(f"{entry}\n" for entry in missing))
     if path.exists():
         print(f"{path} already exists")
         return 0

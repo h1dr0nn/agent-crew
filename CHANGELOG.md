@@ -4,6 +4,15 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.3 - 2026-09-24
+
+### Fixed
+- A rate limit (as opposed to a spent allowance) that resets within five
+  minutes is waited out on the same route, reading the provider's
+  "reset after 1m 51s"; one that resets later sets the route aside until
+  then. A reviewer or worker no longer gives up on a model for a minute's limit.
+- `crew init` also keeps `profile.json` out of git.
+
 ## 1.3.2 - 2026-09-24
 
 ### Fixed

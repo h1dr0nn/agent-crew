@@ -266,7 +266,8 @@ def test_init_reads_the_repository(tmp_path, monkeypatch, capsys):
     assert project.verify["js"] == "npm run -s lint && npm run -s test -- --run"
     assert project.shared == [".venv", "core/node_modules"]
     assert "rust-modules" in project.checks
-    assert "prompts/" in (root / ".agent-crew" / ".gitignore").read_text(encoding="utf-8")
+    ignored = (root / ".agent-crew" / ".gitignore").read_text(encoding="utf-8").split()
+    assert "prompts/" in ignored and "profile.json" in ignored
 
 
 def test_session_start_creates_the_providers_file_and_tells_claude(crew_home, capsys):
