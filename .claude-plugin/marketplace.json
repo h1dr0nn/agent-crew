@@ -11,7 +11,7 @@
       "displayName": "Agent Crew for Claude Code",
       "source": "./",
       "description": "Conduct a crew of cheap, fast OpenAI-compatible models from Claude Code, with enforced boundaries, real verification, cross-model review and one commit per task.",
-      "version": "1.3.0"
+      "version": "1.3.1"
     }
   ]
 }

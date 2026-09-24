@@ -139,6 +139,8 @@ def _prepare(project: config.Project, task: str, commit: Commit, code: list[str]
             subprocess.run(["git", "-C", str(path), "checkout", f"{commit.sha}^", "--", file], capture_output=True)
         else:
             (path / file).unlink(missing_ok=True)
+    # The probe commit may predate the project's crew settings and verify scripts: use today's.
+    subprocess.run(["git", "-C", str(path), "checkout", project.branch, "--", ".agent-crew"], capture_output=True)
     subprocess.run(["git", "-C", str(path), "add", "-A"], capture_output=True)
     subprocess.run(["git", "-C", str(path), "-c", "user.name=crew", "-c", "user.email=crew@localhost",
                     "commit", "-q", "--no-verify", "-m", "calibration: start"], capture_output=True)

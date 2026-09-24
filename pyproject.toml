@@ -1,6 +1,6 @@
 [project]
 name = "agent-crew"
-version = "1.3.0"
+version = "1.3.1"
 description = "Delegate small coding tasks to OpenAI-compatible models from Claude Code, and check their work"
 readme = "README.md"
 license = { text = "MIT" }

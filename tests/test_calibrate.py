@@ -64,3 +64,19 @@ def test_dry_run_changes_nothing(repo, providers_file, monkeypatch, capsys):
     assert cli.main(["calibrate", "--dry-run"]) == 0
     assert "mix" in json.loads(capsys.readouterr().out)
     assert not (repo / ".agent-crew" / "profile.json").exists()
+
+
+def test_a_probe_worktree_uses_todays_crew_settings(repo, providers_file):
+    _add_history(repo)
+    (repo / ".agent-crew" / "verify.sh").write_text("echo ok\n", encoding="utf-8")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "add a verify script after the probe commit")
+    project = config.load_project(repo)
+    probe = calibrate.probes(repo, "rust", list(project.verify) + ["rust"])[0]
+    path = calibrate._prepare(project, "calib-settings", probe, ["src/b.rs", "src/lib.rs"])
+    try:
+        assert (path / ".agent-crew" / "verify.sh").exists()
+        assert not (path / "src" / "b.rs").exists()
+    finally:
+        from crew import worktree
+        worktree.remove(project, "calib-settings")

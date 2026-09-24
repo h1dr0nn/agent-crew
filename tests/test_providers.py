@@ -88,3 +88,13 @@ def test_a_quota_error_wrapped_in_a_503_is_an_exhausted_allowance(providers_file
     with pytest.raises(providers.QuotaExhausted):
         providers.complete(route, [{"role": "user", "content": "x"}], retries=3)
     assert len(server.requests) == 1  # not retried as if it were transient
+
+
+def test_a_plain_404_is_retried_and_a_json_404_is_not(providers_file, server, monkeypatch):
+    monkeypatch.setattr(providers.time, "sleep", lambda seconds: None)
+    route = providers.routes(config.load_providers(), "writer")[0]
+    server.replies += [(404, "404 page not found\n"), "fine"]
+    assert providers.complete(route, [{"role": "user", "content": "x"}])["choices"][0]["message"]["content"] == "fine"
+    server.replies += [(404, '{"error":{"message":"model not found"}}')]
+    with pytest.raises(providers.RouteFailed, match="refused"):
+        providers.complete(route, [{"role": "user", "content": "x"}])

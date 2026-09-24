@@ -4,6 +4,14 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.1 - 2026-09-24
+
+### Fixed
+- A calibration probe's worktree takes today's `.agent-crew/` settings and
+  scripts, so a probe commit older than the verify script can still verify.
+- A plain-text 404 from a router (`404 page not found`, as between restarts)
+  is retried; a JSON 404 (an unknown model) is still refused at once.
+
 ## 1.3.0 - 2026-09-24
 
 ### Added

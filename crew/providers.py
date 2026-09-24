@@ -201,9 +201,12 @@ def complete(route: Route, messages: list, tools: list | None = None, timeout: i
                 raise QuotaExhausted(text) from None
             if error.code in (401,):
                 raise RouteFailed(f"{route.name}: the key was refused ({last})") from None
-            if error.code in (400, 404, 422):
+            # A plain-text 404 ("404 page not found") is a router between restarts, not a
+            # refused request: that comes back as a JSON error. Retry the first, refuse the second.
+            router_restarting = error.code == 404 and not text.lstrip().startswith("{")
+            if error.code in (400, 404, 422) and not router_restarting:
                 raise RouteFailed(f"{route.name}: the request was refused ({last})") from None
-            if error.code not in TRANSIENT:
+            if error.code not in TRANSIENT and not router_restarting:
                 raise RouteFailed(f"{route.name}: {last}") from None
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
             last = str(error)
