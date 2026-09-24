@@ -3,12 +3,19 @@
     crew init                         write .agent-crew/project.toml for this repository
     crew config init|show|test|path   the providers file: create, inspect, probe every route
     crew task new|rm|list NAME        one worktree per task
-    crew run PROMPT --task NAME ...   run a worker on a task
+    crew run PROMPT --task NAME ...   run a worker on a task (PROMPT `-` reads stdin)
+    crew result [NAME]                a finished run's outcome and summary (default: the latest)
+    crew cancel NAME                  stop a running worker
+    crew review [--base REF] ...      a reviewer model's review of the uncommitted work or a branch
+    crew adversarial-review ...       the same, challenging the approach and its assumptions
+    crew gate enable|disable|status   the stop-time review gate for this repository
     crew land NAME -m MSG|-F FILE     land a task as one commit and clean it up
     crew check [--task NAME]          Agent Crew's own checks on a worktree
     crew status                       running tasks, exhausted keys, measured latency
     crew pack PROMPT --task NAME      print a prompt with its directives inlined
     crew metrics LOG                  where a run's time and tokens went
+    crew template [NAME]              print a built-in prompt template, or list them
+    crew doctor                       check Python, git, the providers file, keys and this repository
     crew shim                         (re)write the `crew` launcher in the crew home
 """
 
@@ -18,10 +25,13 @@ import argparse
 import json
 import os
 import pathlib
+import shutil
+import signal
+import subprocess
 import sys
 import time
 
-from crew import __version__, agent, checks, config, land, metrics, pack, providers, worktree
+from crew import __version__, agent, checks, config, land, metrics, pack, procs, providers, review, worktree
 
 EXAMPLE_PROVIDERS = '''# Agent Crew providers. Keys never go in this file: name the environment
 # variables that hold them (api_key_envs), or a file with one key per line
@@ -77,10 +87,15 @@ def _print(value) -> None:
 def cmd_init(args) -> int:
     root = pathlib.Path(args.root or ".").resolve()
     path = root / config.PROJECT_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Task prompts are working files: keep them next to the project, out of git.
+    ignore = path.parent / ".gitignore"
+    if "prompts/" not in (ignore.read_text(encoding="utf-8") if ignore.exists() else ""):
+        with open(ignore, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write("prompts/\n")
     if path.exists():
         print(f"{path} already exists")
         return 0
-    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(EXAMPLE_PROJECT.replace("{name}", root.name), encoding="utf-8")
     print(f"wrote {path}; set [verify] and shared for this repository")
     return 0
@@ -148,11 +163,17 @@ def cmd_task(args) -> int:
 
 def cmd_run(args) -> int:
     project = config.load_project()
+    if args.new_task and args.task and not worktree.exists(args.task):
+        worktree.create(project, args.task, args.base)
     workdir = _task_path(args, project)
+    from_stdin = args.prompt == "-"
+    if from_stdin and not (args.name or args.task):
+        raise config.ConfigError("a prompt on stdin needs --task or --name, so the run has a name to follow and cancel")
     name = args.name or args.task or pathlib.Path(args.prompt).stem
-    log_dir = pathlib.Path(args.log_dir) if args.log_dir else config.home() / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    text = pack.pack(pathlib.Path(args.prompt).read_text(encoding="utf-8"), workdir)
+    log_dir = _log_dir(args)
+    source = sys.stdin.buffer.read() if from_stdin else pathlib.Path(args.prompt).read_bytes()
+    raw = source.decode("utf-8-sig")
+    text = pack.pack(raw, workdir)
     (log_dir / f"{name}.packed.md").write_text(text, encoding="utf-8")
     command = args.verify_cmd
     if command is None and args.verify:
@@ -168,23 +189,157 @@ def cmd_run(args) -> int:
     running = config.state_dir() / "running"
     running.mkdir(exist_ok=True)
     lock = running / f"{name}.json"
-    lock.write_text(json.dumps({"task": name, "workdir": str(workdir), "started": time.time(),
-                                "route": chain[0].name if chain else None, "pid": os.getpid()}), encoding="utf-8")
+    if lock.exists() and _worker_alive(json.loads(lock.read_text(encoding="utf-8"))):
+        raise config.ConfigError(f"a worker named {name} is already running (`crew cancel {name}` stops it)")
+    stop = running / f"{name}.cancel"
+    stop.unlink(missing_ok=True)
+    lock.write_text(json.dumps({"task": name, "workdir": str(workdir), "started": time.time(), "log_dir": str(log_dir),
+                                "route": chain[0].name if chain else None, "pid": os.getpid(),
+                                "identity": procs.identity(os.getpid())}), encoding="utf-8")
+    # `crew cancel` asks first (a file checked before each step), then signals.
+    signal.signal(signal.SIGTERM, _terminated)
     events = log_dir / f"{name}.jsonl"
     events.write_text("", encoding="utf-8")
     log = agent.Log(events)
     try:
-        outcome = agent.run(text, boundary, chain, verify, log, settings, project.ignore_strays)
+        outcome = agent.run(text, boundary, chain, verify, log, settings, project.ignore_strays, cancelled=stop.exists)
     finally:
         log.close()
         lock.unlink(missing_ok=True)
+        stop.unlink(missing_ok=True)
     summary = metrics.summarise(events)
     (log_dir / f"{name}.metrics.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     (log_dir / f"{name}.last.md").write_text(outcome.summary + ("\nTASK COMPLETE\n" if outcome.status == "finished" else ""), encoding="utf-8")
-    _print({"task": name, "status": outcome.status, "steps": outcome.steps, "route": outcome.route,
-            "tokens_in": outcome.tokens_in, "tokens_out": outcome.tokens_out, "wall_min": summary["wall_min"],
-            "summary": outcome.summary[-1500:]})
+    result = {"task": name, "status": outcome.status, "steps": outcome.steps, "route": outcome.route,
+              "tokens_in": outcome.tokens_in, "tokens_out": outcome.tokens_out, "wall_min": summary["wall_min"],
+              "workdir": str(workdir), "finished_at": time.time()}
+    (log_dir / f"{name}.outcome.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    _print(dict(result, summary=outcome.summary[-1500:]))
     return 0 if outcome.status == "finished" else 5
+
+
+def _log_dir(args) -> pathlib.Path:
+    log_dir = pathlib.Path(args.log_dir) if getattr(args, "log_dir", None) else config.home() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+
+def _worker_alive(record: dict) -> bool:
+    return procs.alive(int(record.get("pid", 0)), record.get("identity"))
+
+
+def _terminated(signum, frame):
+    raise SystemExit(128 + signum)
+
+
+def cmd_result(args) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
+    log_dir = _log_dir(args)
+    if args.name:
+        path = log_dir / f"{args.name}.outcome.json"
+    else:
+        found = sorted(log_dir.glob("*.outcome.json"), key=lambda p: p.stat().st_mtime)
+        if not found:
+            raise config.ConfigError(f"no finished runs in {log_dir}")
+        path = found[-1]
+    name = path.name[: -len(".outcome.json")]
+    running = config.state_dir() / "running" / f"{name}.json"
+    if running.exists():
+        record = json.loads(running.read_text(encoding="utf-8"))
+        minutes = int((time.time() - record["started"]) / 60)
+        if _worker_alive(record):
+            print(f"{name} is still running ({minutes} min, {record.get('route')})")
+        else:
+            print(f"{name} stopped without finishing after {minutes} min (process gone); `crew cancel {name}` clears it")
+        return 0
+    if not path.exists():
+        raise config.ConfigError(f"no run named {name} in {log_dir}")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("task", "status", "steps", "route", "wall_min", "tokens_in", "tokens_out", "workdir"):
+        print(f"{key + ':':12} {result.get(key)}")
+    print(f"{'log:':12} {log_dir / (name + '.jsonl')}")
+    last = log_dir / f"{name}.last.md"
+    print("\n" + (last.read_text(encoding="utf-8").strip() if last.exists() else "(no summary)"))
+    if result.get("status") == "finished":
+        print(f"\nnext: verify it yourself, review it, then `crew land {name} -F <message file>`")
+    return 0
+
+
+def cmd_cancel(args) -> int:
+    lock = config.state_dir() / "running" / f"{args.name}.json"
+    if not lock.exists():
+        raise config.ConfigError(f"no running worker named {args.name} (see `crew status`)")
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    pid = int(record.get("pid", 0))
+    running = lock.parent
+    if _worker_alive(record):
+        (running / f"{args.name}.cancel").write_text("cancel", encoding="utf-8")
+        for _ in range(args.wait * 2):
+            if not lock.exists():
+                print(f"cancelled {args.name}: it stopped at its next step; its worktree is kept")
+                return 0
+            time.sleep(0.5)
+        # Still inside a model request or a verify: stop it and everything it started.
+        procs.kill_tree(pid)
+    lock.unlink(missing_ok=True)
+    (running / f"{args.name}.cancel").unlink(missing_ok=True)
+    log_dir = pathlib.Path(record["log_dir"]) if record.get("log_dir") else _log_dir(args)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    result = {"task": args.name, "status": "cancelled", "steps": None, "route": record.get("route"),
+              "wall_min": round((time.time() - record["started"]) / 60, 1), "workdir": record.get("workdir"),
+              "finished_at": time.time()}
+    (log_dir / f"{args.name}.outcome.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    (log_dir / f"{args.name}.last.md").write_text("Cancelled.\n", encoding="utf-8")
+    print(f"cancelled {args.name} (pid {pid}); its worktree is kept: `crew task rm {args.name}` drops it")
+    return 0
+
+
+def cmd_review(args) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
+    try:
+        root = config.find_root()
+        fallback = config.load_project(root).branch
+    except config.ConfigError:
+        # Any git repository can be reviewed; only the default base needs a project file.
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+        if top.returncode != 0:
+            raise config.ConfigError("not inside a git repository") from None
+        root, fallback = pathlib.Path(top.stdout.strip()), None
+    kind = "adversarial" if args.command == "adversarial-review" else "review"
+    found = review.run(root, kind, args.base, args.scope, " ".join(args.focus or []), args.model, fallback)
+    print(f"target: {found['target']} ({len(found['files'])} file(s))")
+    if found["route"]:
+        print(f"reviewer: {found['route']}")
+    print("\n" + found["review"])
+    return 0
+
+
+def cmd_gate(args) -> int:
+    root = config.find_root()
+    if args.action in ("enable", "disable"):
+        review.set_gate(root, args.action == "enable")
+    enabled = review.gate_enabled(root)
+    print(f"stop-time review gate for {root}: {'enabled' if enabled else 'disabled'}")
+    if enabled:
+        print("when Claude stops with uncommitted work here, a reviewer model reviews it and may block the stop")
+    return 0
+
+
+def cmd_hook(args) -> int:
+    """Claude Code hooks. `stop` reads the Stop event on stdin and prints a
+    decision. It always exits 0: a gate that fails must not wedge the session."""
+    try:
+        event = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return 0
+    try:
+        decision = review.stop_hook(event)
+    except Exception as error:  # noqa: BLE001 - a hook must never take the session down
+        decision = {"systemMessage": f"Agent Crew review gate failed: {error}"}
+    if decision:
+        sys.stdout.reconfigure(encoding="utf-8")
+        print(json.dumps(decision, ensure_ascii=False))
+    return 0
 
 
 def cmd_land(args) -> int:
@@ -212,7 +367,8 @@ def cmd_status(args) -> int:
     print("running:" if running else "running: none")
     for path in running:
         record = json.loads(path.read_text(encoding="utf-8"))
-        print(f"  {record['task']:20} {int((time.time() - record['started']) / 60)} min  {record.get('route')}")
+        gone = "" if _worker_alive(record) else "  (process gone; `crew cancel` clears it)"
+        print(f"  {record['task']:20} {int((time.time() - record['started']) / 60)} min  {record.get('route')}{gone}")
     markers = providers.exhausted_markers()
     print("exhausted:" if markers else "exhausted: none")
     for name, until, message in markers:
@@ -241,17 +397,79 @@ def cmd_metrics(args) -> int:
     return 0
 
 
+def cmd_template(args) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
+    if not args.name:
+        print("\n".join(sorted(p.stem for p in pack.TEMPLATES.glob("*.md"))))
+        return 0
+    print(pack.template(args.name), end="")
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    """Checks everything `crew run` needs, and says how to fix what is missing."""
+    problems = 0
+
+    def report(ok: bool, what: str, fix: str = "", note: bool = False) -> None:
+        nonlocal problems
+        problems += 0 if ok or note else 1
+        mark = "ok  " if ok else ("note" if note else "FAIL")
+        print(f"{mark} {what}" + ("" if ok or not fix else f"  -> {fix}"))
+
+    report(sys.version_info >= (3, 11), f"Python {sys.version.split()[0]}", "install Python 3.11 or later")
+    git = shutil.which("git")
+    report(git is not None, f"git {'at ' + git if git else 'not found'}", "install git and put it on PATH")
+    launcher = config.home() / "bin" / ("crew.cmd" if os.name == "nt" else "crew")
+    report(launcher.exists(), f"launcher {launcher}", "run `crew shim`, or start a new Claude Code session")
+    on_path = shutil.which("crew") is not None
+    report(on_path, "crew on PATH" if on_path else "crew not on PATH",
+           f"call the launcher by its path, or add {launcher.parent} to PATH", note=True)
+    try:
+        loaded = config.load_providers()
+        report(True, f"providers file {config.providers_path()}")
+        for provider in loaded.providers.values():
+            labels = [label for label, _ in provider.keys()]
+            report(bool(labels), f"provider {provider.name}: {len(labels)} key(s) found",
+                   f"set {' or '.join(provider.key_envs) or provider.key_file}")
+        for role in ("writer", "reviewer"):
+            chain = providers.routes(loaded, role)
+            report(bool(chain), f"{role}: {len(chain)} usable route(s)",
+                   "give a model this role, or wait for an exhausted allowance to reset (`crew status`)")
+    except config.ConfigError as error:
+        report(False, str(error), "run `crew config init` and edit the file")
+    try:
+        project = config.load_project()
+        report(True, f"project file in {project.root}")
+        report(True, f"stop-time review gate {'enabled' if review.gate_enabled(project.root) else 'disabled'}")
+        report(bool(project.verify) and "default" not in project.verify, f"verify kinds: {', '.join(project.verify) or 'none'}",
+               "set [verify] commands in .agent-crew/project.toml")
+        missing = [s for s in project.shared if not (project.root / s).exists()]
+        report(not missing, f"shared dirs: {', '.join(project.shared) or 'none'}", f"missing: {', '.join(missing)}")
+        dirty = subprocess.run(["git", "-C", str(project.root), "status", "--porcelain", "--untracked-files=no"],
+                               capture_output=True, text=True).stdout.strip()
+        report(not dirty, "integration checkout has no uncommitted tracked changes", "commit or stash before landing")
+    except config.ConfigError as error:
+        print(f"note {error}")
+    print("all good" if problems == 0 else f"{problems} problem(s)")
+    return 0 if problems == 0 else 1
+
+
 def cmd_shim(args) -> int:
     """Writes `crew` (POSIX) and `crew.cmd` (Windows) into <crew home>/bin,
     pointing at this installation, so skills and people can call `crew`."""
     package_root = pathlib.Path(__file__).resolve().parent.parent
     bin_dir = config.home() / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
-    python = sys.executable
+    python = pathlib.Path(sys.executable).as_posix()
+    entry = package_root / "scripts" / "crew.py"
+    # From a plugin checkout, run its entry script (no PYTHONPATH to get wrong
+    # across shells); from a pip install, the installed package.
+    target = f'"{entry.as_posix()}"' if entry.exists() else "-m crew"
     posix = bin_dir / "crew"
-    posix.write_text(f'#!/bin/sh\nPYTHONPATH="{package_root}${{PYTHONPATH:+:$PYTHONPATH}}" exec "{python}" -m crew "$@"\n', encoding="utf-8")
+    posix.write_text(f'#!/bin/sh\nexec "{python}" {target} "$@"\n', encoding="utf-8", newline="\n")
     posix.chmod(0o755)
-    (bin_dir / "crew.cmd").write_text(f'@echo off\r\nset "PYTHONPATH={package_root};%PYTHONPATH%"\r\n"{python}" -m crew %*\r\n', encoding="utf-8")
+    windows_target = f'"{entry}"' if entry.exists() else "-m crew"
+    (bin_dir / "crew.cmd").write_text(f'@echo off\r\n"{sys.executable}" {windows_target} %*\r\n', encoding="utf-8", newline="")
     if not args.quiet:
         print(f"wrote {posix} and {posix}.cmd (package at {package_root})")
     return 0
@@ -287,9 +505,38 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--role", default="writer", choices=["writer", "reviewer"])
     p.add_argument("--model", default="auto", help="auto, one model id, or a comma-separated preference list")
     p.add_argument("--max-steps", type=int)
-    p.add_argument("--base", help="what checks compare against (default: the integration branch)")
+    p.add_argument("--base", help="what checks compare against, and where a --new-task worktree starts "
+                                  "(default: the integration branch)")
     p.add_argument("--log-dir")
+    p.add_argument("--new-task", action="store_true", help="create the --task worktree first if it does not exist")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("result", help="a finished run's outcome")
+    p.add_argument("name", nargs="?")
+    p.add_argument("--log-dir")
+    p.set_defaults(func=cmd_result)
+
+    p = sub.add_parser("cancel", help="stop a running worker")
+    p.add_argument("name")
+    p.add_argument("--wait", type=int, default=20, help="seconds to let it stop at its next step before killing it")
+    p.set_defaults(func=cmd_cancel)
+
+    for command, help_text in (("review", "review local changes with a reviewer model"),
+                               ("adversarial-review", "challenge local changes: approach, assumptions, failure modes")):
+        p = sub.add_parser(command, help=help_text)
+        p.add_argument("--base", help="review HEAD against this ref (default: the uncommitted work, else the integration branch)")
+        p.add_argument("--scope", default="auto", choices=["auto", "working-tree", "branch"])
+        p.add_argument("--model", default="auto")
+        p.add_argument("focus", nargs="*", help="what to look at hardest")
+        p.set_defaults(func=cmd_review)
+
+    p = sub.add_parser("gate", help="the stop-time review gate")
+    p.add_argument("action", nargs="?", default="status", choices=["enable", "disable", "status"])
+    p.set_defaults(func=cmd_gate)
+
+    p = sub.add_parser("hook", help="used by the plugin's hooks")
+    p.add_argument("event", choices=["stop"])
+    p.set_defaults(func=cmd_hook)
 
     p = sub.add_parser("land", help="land a task as one commit")
     p.add_argument("name")
@@ -318,6 +565,13 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("log")
     p.set_defaults(func=cmd_metrics)
 
+    p = sub.add_parser("template", help="print a built-in prompt template")
+    p.add_argument("name", nargs="?")
+    p.set_defaults(func=cmd_template)
+
+    p = sub.add_parser("doctor", help="check the setup")
+    p.set_defaults(func=cmd_doctor)
+
     p = sub.add_parser("shim", help="write the crew launcher")
     p.add_argument("--quiet", action="store_true")
     p.set_defaults(func=cmd_shim)
@@ -331,6 +585,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return args.func(args)
-    except (config.ConfigError, worktree.WorktreeError, land.LandError) as error:
+    except (config.ConfigError, worktree.WorktreeError, land.LandError, review.ReviewError) as error:
         print(f"crew: {error}", file=sys.stderr)
         return 2

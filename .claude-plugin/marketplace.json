@@ -8,9 +8,10 @@
   "plugins": [
     {
       "name": "agent-crew",
+      "displayName": "Agent Crew for Claude Code",
       "source": "./",
       "description": "Conduct a crew of cheap, fast OpenAI-compatible models from Claude Code, with enforced boundaries, real verification, cross-model review and one commit per task.",
-      "version": "0.1.0"
+      "version": "1.0.0"
     }
   ]
 }

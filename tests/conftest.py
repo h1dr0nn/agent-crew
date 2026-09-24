@@ -73,10 +73,13 @@ class ScriptedServer:
                     return
                 if reply == ("finish-default",):
                     reply = [("finish", {"summary": "done"})]
-                calls = [{"id": f"call{i}", "type": "function",
-                          "function": {"name": name, "arguments": json.dumps(args)}} for i, (name, args) in enumerate(reply)]
-                payload = {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": calls}}],
-                           "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+                if isinstance(reply, str):  # a plain answer, as a reviewer gives
+                    message = {"role": "assistant", "content": reply}
+                else:
+                    calls = [{"id": f"call{i}", "type": "function",
+                              "function": {"name": name, "arguments": json.dumps(args)}} for i, (name, args) in enumerate(reply)]
+                    message = {"role": "assistant", "content": None, "tool_calls": calls}
+                payload = {"choices": [{"message": message}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
                 data = json.dumps(payload).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")

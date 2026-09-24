@@ -100,3 +100,10 @@ def test_shared_directories_are_linked_and_survive_removal(repo, tmp_path):
     assert (path / "node_modules" / "keep.txt").read_text() == "keep"
     worktree.remove(project, "t3")
     assert (repo / "node_modules" / "keep.txt").read_text() == "keep"
+
+
+def test_pack_inlines_templates():
+    packed = pack.pack("@@template rules\nTask body", pathlib.Path("."))
+    assert "Everything you need is in this prompt" in packed and "Task body" in packed
+    with pytest.raises(config.ConfigError, match="known"):
+        pack.template("nope")

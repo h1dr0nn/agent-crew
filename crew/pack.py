@@ -6,6 +6,7 @@ A task prompt may contain directives, each on a line of its own:
     @@include <path>#L10-L80     lines 10 to 80
     @@grep <path> <regex>        the matching lines, with their numbers
     @@diff <base> [paths...]     `git diff <base>...HEAD` plus uncommitted changes
+    @@template <name>            a built-in template (`crew template` lists them; `rules` is the worker rules)
 
 Relative paths resolve against the worktree. A missing file is inlined as a
 note rather than failing, because a task may be the one creating it.
@@ -16,6 +17,8 @@ from __future__ import annotations
 import pathlib
 import re
 import subprocess
+
+from crew import config
 
 FENCE = {".rs": "rust", ".ts": "ts", ".tsx": "tsx", ".js": "js", ".json": "json", ".md": "md",
          ".toml": "toml", ".py": "python", ".css": "css", ".go": "go", ".java": "java", ".cs": "csharp"}
@@ -63,6 +66,17 @@ def diff(root: pathlib.Path, spec: str) -> str:
     return f"The change under review (`git diff {base}...HEAD`), already inlined:\n```diff\n{body}\n```\n"
 
 
+TEMPLATES = pathlib.Path(__file__).resolve().parent / "templates"
+
+
+def template(name: str) -> str:
+    path = TEMPLATES / f"{name.strip()}.md"
+    if not path.is_file():
+        known = ", ".join(sorted(p.stem for p in TEMPLATES.glob("*.md")))
+        raise config.ConfigError(f"no template {name!r}; known: {known}")
+    return path.read_text(encoding="utf-8")
+
+
 def pack(prompt: str, root: pathlib.Path) -> str:
     out = []
     for line in prompt.splitlines():
@@ -70,6 +84,8 @@ def pack(prompt: str, root: pathlib.Path) -> str:
             out.append(include(root, line[len("@@include "):].strip()))
         elif line.startswith("@@grep "):
             out.append(grep(root, line[len("@@grep "):].strip()))
+        elif line.startswith("@@template "):
+            out.append(template(line[len("@@template "):]))
         elif line.startswith("@@diff "):
             out.append(diff(root, line[len("@@diff "):].strip()))
         else:

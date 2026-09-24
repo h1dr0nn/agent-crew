@@ -51,7 +51,8 @@ Requires Python 3.11 or later and git. On each session start the plugin writes
 a `crew` launcher to `~/.agent-crew/bin` (`crew.cmd` on Windows); add that
 directory to your PATH, or call the launcher by its path.
 
-Then run `/agent-crew:crew-setup`, or do it by hand as below.
+Then run `/agent-crew:setup`, or do it by hand as below. `/agent-crew:doctor`
+says what is still missing.
 
 ## Configure providers
 
@@ -112,12 +113,16 @@ it prints is a token the worker reads.
 
 ## Use
 
-Ask Claude to use the crew; the `conductor` skill carries the method. Or by hand:
+Ask Claude to use the crew ("plan this and have the crew build it"); the
+`conductor` skill carries the method, and Claude picks up `plan`, `dispatch`,
+`worker-prompting` and the `crew-worker` subagent as it goes. Or drive it
+yourself with the skills below, or the CLI:
 
 ```bash
-crew task new parse-args
-crew run prompts/parse-args.md --task parse-args --owns "src/args.rs" --verify rust
+crew run .agent-crew/prompts/parse-args.md --task parse-args --new-task --owns "src/args.rs" --verify rust
+crew result parse-args
 crew check --task parse-args
+crew review --base main
 crew land parse-args -m "feat: parse the command-line arguments"
 ```
 
@@ -125,10 +130,48 @@ A prompt is Markdown with directives that inline what the worker needs, so it
 spends no turns reading:
 
 ```
+@@template rules
 @@include src/config.rs#L1-L80
 @@grep src/lib.rs ^pub (fn|struct)
 @@diff main src/args.rs
 ```
+
+`@@template rules` inlines the worker rules; `crew template` lists the
+built-in templates (a task skeleton, a review task, and the review and gate
+prompts). Keep prompts in `.agent-crew/prompts/`, which `crew init` keeps out
+of git.
+
+## Skills
+
+Invoke as `/agent-crew:<name>`.
+
+| Skill | Does |
+| --- | --- |
+| `setup` | the providers file, key variables, this repository's project file; `--enable-review-gate` |
+| `doctor` | what is missing, and the fix for each |
+| `plan` | waves of small tasks, no two in a wave writing the same file, written into the repository |
+| `dispatch` | one bounded task to one worker, in the foreground or the background |
+| `status` | running workers, exhausted keys and when they reset, latency, open worktrees |
+| `result` | a finished run: status, steps, route, time, tokens, summary, final verify |
+| `cancel` | stop a running worker |
+| `review` | a reviewer model on the uncommitted work or a branch: real defects only |
+| `adversarial-review` | the same, challenging the approach, assumptions and failure modes |
+| `land` | check a finished task, then land it as one commit |
+| `review-gate` | turn the stop-time review gate on or off |
+
+Claude also uses `conductor` (the whole method), `worker-prompting` (how to
+write tasks weak models finish) and `result-handling` on its own, and the
+`crew-worker` subagent hands a bounded task to a worker from a subagent.
+
+## Stop-time review gate
+
+Off by default. `crew gate enable` (or `/agent-crew:review-gate enable`) turns
+it on for one repository: each time Claude is about to stop with uncommitted
+work there, a reviewer model reads the work and Claude's last message and
+answers ALLOW or BLOCK. A BLOCK keeps Claude going, with the reasons as its
+next instruction. It never fires twice in a row, does nothing when there is
+nothing uncommitted, and lets the stop through when no reviewer answers. Each
+stop costs one reviewer request and its wait.
 
 `crew status` shows running tasks, exhausted keys and model latency;
 `crew metrics <log>` shows where a run's time and tokens went. Logs are in
@@ -141,12 +184,20 @@ spends no turns reading:
 | `crew init` | write `.agent-crew/project.toml` |
 | `crew config init\|show\|test\|path` | the providers file |
 | `crew task new\|rm\|list NAME` | one worktree per task, shared dirs linked |
-| `crew run PROMPT --task NAME --owns GLOBS --verify KIND` | run a worker |
+| `crew run PROMPT --task NAME --owns GLOBS --verify KIND` | run a worker (`-` reads the prompt from stdin, `--new-task` creates the worktree) |
+| `crew result [NAME]` | a finished run's outcome and summary |
+| `crew cancel NAME` | stop a running worker |
+| `crew review [--base REF] [--scope ...] [focus]` | one reviewer request on local changes |
+| `crew adversarial-review [...]` | the same, challenging the approach |
+| `crew gate enable\|disable\|status` | the stop-time review gate |
 | `crew land NAME -m MSG` | land a task as one commit and remove its worktree |
 | `crew check --task NAME` | Agent Crew's checks on a worktree |
 | `crew status` | running tasks, exhausted keys, latency, open worktrees |
 | `crew pack PROMPT --task NAME` | print a prompt with its directives inlined |
 | `crew metrics LOG` | a run's time and token summary |
+| `crew template [NAME]` | list or print the built-in templates |
+| `crew doctor` | check the whole setup |
+| `crew shim` | rewrite the launcher |
 
 ## Develop
 

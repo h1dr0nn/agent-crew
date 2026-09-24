@@ -28,7 +28,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 
-from crew import checks, providers
+from crew import checks, procs, providers
 
 SYSTEM = """You are a coding worker completing one delegated task in a git worktree.
 Work with the tools, not with prose. The task prompt inlines the files you need;
@@ -167,8 +167,7 @@ def make_verify(command: str | None, boundary: Boundary, base: str, check_names:
     def verify() -> tuple[str, bool]:
         parts, failed = [], False
         if command:
-            result = subprocess.run(command, shell=True, cwd=boundary.root, capture_output=True, text=True,
-                                    encoding="utf-8", errors="replace", timeout=timeout)
+            result = procs.run(command, boundary.root, timeout)
             output = (result.stdout + result.stderr).strip()
             parts.append(output[-10000:])
             failed = result.returncode != 0 or "RESULT: FAIL" in output
@@ -224,7 +223,7 @@ class Log:
 
 @dataclass
 class Outcome:
-    status: str          # finished | max_steps | no_progress | stalled | no_route
+    status: str          # finished | max_steps | no_progress | stalled | no_route | cancelled
     steps: int
     summary: str
     tokens_in: int
@@ -233,7 +232,9 @@ class Outcome:
 
 
 def run(prompt: str, boundary: Boundary, route_list: list[providers.Route], verify, log: Log,
-        settings: Settings | None = None, ignore_strays: list[str] | None = None) -> Outcome:
+        settings: Settings | None = None, ignore_strays: list[str] | None = None, cancelled=None) -> Outcome:
+    """Runs the worker loop. `cancelled`, when given, is asked before each
+    step; when it answers true the run stops with status `cancelled`."""
     settings = settings or Settings()
     if not route_list:
         return Outcome("no_route", 0, "no usable model: every key is exhausted or missing", 0, 0, "")
@@ -246,6 +247,9 @@ def run(prompt: str, boundary: Boundary, route_list: list[providers.Route], veri
     verified = False
     step = 0
     for step in range(settings.max_steps):
+        if cancelled and cancelled():
+            status = "cancelled"
+            break
         log.emit({"type": "turn.started", "step": step})
         response = None
         while pool:

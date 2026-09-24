@@ -13,7 +13,14 @@ check the result yourself before it lands.
 
 The CLI is `crew` (written to `~/.agent-crew/bin` by the plugin; on Windows
 `crew.cmd`). If it is not on PATH, call it by that path. `crew --help` lists
-every command.
+every command, and `crew doctor` says what is missing.
+
+The other skills are the steps of this one: `plan` (waves and file
+ownership), `worker-prompting` (how to write a task), `dispatch` (one task to
+one worker; the `crew-worker` subagent does the same in a subagent),
+`result`, `status`, `cancel`, `review` and `adversarial-review` (a reviewer
+model on local changes), `land`, and `review-gate` (an opt-in review of
+uncommitted work each time Claude stops).
 
 ## 0. Setup, once
 
@@ -37,7 +44,9 @@ them.
 
 ## 2. Write each task prompt
 
-A prompt is Markdown. Make it small and self-contained:
+A prompt is Markdown, kept in `.agent-crew/prompts/` (ignored by git). Start
+from `crew template task` and put `@@template rules` on its first line, which
+inlines the worker rules. Make it small and self-contained:
 
 - one to three files owned, named exactly;
 - the exact signatures, types and error codes to write, not a description;
@@ -53,14 +62,14 @@ change, a compiler's own suggestion), say exactly what to change.
 ## 3. Dispatch
 
 ```bash
-crew task new B1
-crew run prompts/B1.md --task B1 --owns "src/tools/orientation.rs" --verify rust --role writer
+crew run .agent-crew/prompts/B1.md --task B1 --new-task --owns "src/tools/orientation.rs" --verify rust
 ```
 
 Run several at once in the background; routes are spread across keys and
 models automatically, and a key that runs out of an allowance is skipped until
 it resets. `crew status` shows what is running, what is exhausted, and how fast
-each model has been.
+each model has been; `crew result B1` shows a finished run, and `crew cancel
+B1` stops one.
 
 ## 4. Check every result yourself
 
@@ -73,9 +82,12 @@ A worker's "done" is a claim. Before landing:
 3. Read the diff. Look for work outside the spec, deleted behaviour, tests that
    do not test what their names say, and a "clean build" that never compiled
    the new code.
-4. Have another model review it: a prompt with `@@diff main <paths>` and the
-   spec, `--role reviewer`, no files owned. Send real findings back to a writer
-   as a new, precise task. Repeat until clean.
+4. Have another model review it: a prompt from `crew template task-review`
+   with the spec and `@@diff main <paths>`, `--role reviewer`, no files owned;
+   or, for the checkout you are in, `crew review` (defects) and
+   `crew adversarial-review` (the approach). Confirm each finding against the
+   code, send the real ones back to a writer as a new, precise task, and
+   repeat until clean.
 
 When a worker is stuck on something you can see (a module named like a crate
 shadowing it, a type annotation, a wrong test literal), fix the two characters

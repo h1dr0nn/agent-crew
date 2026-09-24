@@ -40,6 +40,10 @@ def _record(task: str) -> pathlib.Path:
     return directory / f"{task}.json"
 
 
+def exists(task: str) -> bool:
+    return _record(task).exists()
+
+
 def info(task: str) -> dict:
     try:
         return json.loads(_record(task).read_text(encoding="utf-8"))

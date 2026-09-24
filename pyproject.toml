@@ -1,6 +1,6 @@
 [project]
 name = "agent-crew"
-version = "0.1.0"
+version = "1.0.0"
 description = "Delegate small coding tasks to OpenAI-compatible models from Claude Code, and check their work"
 readme = "README.md"
 license = { text = "MIT" }
@@ -19,6 +19,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["crew"]
+
+[tool.setuptools.package-data]
+crew = ["templates/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
