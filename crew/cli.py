@@ -720,6 +720,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Summaries carry whatever a model wrote; a legacy console code page must not crash on it.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     args = parser().parse_args(argv)
     if args.command == "task" and args.action in ("new", "rm") and not args.name:
         print("crew task new|rm needs a name", file=sys.stderr)

@@ -100,3 +100,19 @@ def test_search_stays_inside_the_worktree(repo):
     boundary = agent.Boundary(repo, [], [])
     output, failed = agent.run_tool("search", {"pattern": "x", "path": str(pathlib.Path(repo).parent)}, boundary, None, agent.Settings())
     assert failed and "outside the worktree" in output
+
+
+def test_a_task_that_writes_many_files_before_its_first_pass_is_not_stalled(repo, server, providers_file):
+    owns = [f"src/f{i}.txt" for i in range(16)]
+    server.replies += [[("write_file", {"path": p, "content": "x\n"})] for p in owns]
+    server.replies += [[("verify", {})], [("finish", {"summary": "all written"})]]
+    project = config.load_project(repo)
+    settings = agent.Settings(max_steps=30, stall_steps=6)
+    boundary = agent.Boundary(repo, owns, [])
+    verify = agent.make_verify(project.verify["pass"], boundary, "main", project.checks, project.source_suffixes, 60)
+    log = agent.Log(repo.parent / "many.jsonl")
+    try:
+        outcome = agent.run("write them", boundary, providers.routes(config.load_providers(), "writer"), verify, log, settings)
+    finally:
+        log.close()
+    assert outcome.status == "finished"

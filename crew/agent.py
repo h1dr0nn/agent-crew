@@ -310,7 +310,11 @@ def run(prompt: str, boundary: Boundary, route_list: list[providers.Route], veri
             if name in READ_TOOLS:
                 reads_since_write += 1
             elif name in WRITE_TOOLS and not failed:
+                # A write is progress: a task that needs many files before its
+                # first passing verify is working, not stalled. Loops that only
+                # read are caught by the read budget instead.
                 reads_since_write = 0
+                since_progress = 0
                 verified = False
             elif name == "verify":
                 verified = not failed

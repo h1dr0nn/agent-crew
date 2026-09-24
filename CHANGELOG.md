@@ -4,6 +4,14 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.3.2 - 2026-09-24
+
+### Fixed
+- A successful write counts as progress, so a task that needs many files
+  before its first passing verify is no longer stopped as stalled.
+- Output is written as UTF-8 whatever the console's code page, so a summary
+  with a symbol a model wrote no longer crashes `crew run` at the end.
+
 ## 1.3.1 - 2026-09-24
 
 ### Fixed
