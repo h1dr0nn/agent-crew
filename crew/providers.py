@@ -27,6 +27,18 @@ from crew import config
 QUOTA_WORDS = re.compile(r"quota|allowance|exhaust|insufficient|limit_reached|credit|billing", re.I)
 RESET = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})")
 TRANSIENT = (429, 500, 502, 503, 504, 520, 522, 524)
+RATE_LIMIT = re.compile(r"rate[ _]limit", re.I)
+RESET_AFTER = re.compile(r"reset after (?:(\d+)h ?)?(?:(\d+)m ?)?(?:(\d+)s)?", re.I)
+WAIT_AT_MOST = 300   # a rate limit that resets sooner than this is waited out
+
+
+def reset_after(message: str) -> float | None:
+    """Seconds until a provider says a limit resets ("reset after 1m 51s"), if it says."""
+    match = RESET_AFTER.search(message)
+    if not match or not any(match.groups()):
+        return None
+    hours, minutes, seconds = (int(part or 0) for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
 
 
 @dataclass
@@ -75,6 +87,8 @@ def mark_exhausted(key_label: str, allowance: str, message: str) -> float:
     until = time.time() + 3600
     if match:
         until = calendar.timegm(time.strptime(match[1], "%Y-%m-%dT%H:%M:%S"))
+    elif (after := reset_after(message)) is not None:
+        until = time.time() + after
     (config.state_dir() / _marker(key_label, allowance)).write_text(f"{until} {message[:300]}", encoding="utf-8")
     return until
 
@@ -199,6 +213,15 @@ def complete(route: Route, messages: list, tools: list | None = None, timeout: i
             # A router may wrap the upstream's 429 in a 502 or 503; the words say what it is.
             if (error.code in (402, 403, 429) or error.code >= 500) and QUOTA_WORDS.search(text):
                 raise QuotaExhausted(text) from None
+            # A rate limit (requests per minute, not an allowance) that resets
+            # soon is waited out on the same route; one that resets later
+            # sets the route aside until then, like an exhausted allowance.
+            if RATE_LIMIT.search(text):
+                after = reset_after(text)
+                if after is not None and after > WAIT_AT_MOST:
+                    raise QuotaExhausted(text) from None
+                time.sleep(min(WAIT_AT_MOST, (after or 30) + 2))
+                continue
             if error.code in (401,):
                 raise RouteFailed(f"{route.name}: the key was refused ({last})") from None
             # A plain-text 404 ("404 page not found") is a router between restarts, not a

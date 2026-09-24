@@ -98,3 +98,25 @@ def test_a_plain_404_is_retried_and_a_json_404_is_not(providers_file, server, mo
     server.replies += [(404, '{"error":{"message":"model not found"}}')]
     with pytest.raises(providers.RouteFailed, match="refused"):
         providers.complete(route, [{"role": "user", "content": "x"}])
+
+
+def test_a_short_rate_limit_is_waited_out_and_a_long_one_sets_the_route_aside(providers_file, server, monkeypatch):
+    waited = []
+    monkeypatch.setattr(providers.time, "sleep", waited.append)
+    route = providers.routes(config.load_providers(), "writer")[0]
+    limited = '{"error":{"message":"[429]: rate_limit_error: would exceed your rate limit (reset after 1m 51s)"}}'
+    server.replies += [(503, limited), "fine"]
+    assert providers.complete(route, [{"role": "user", "content": "x"}])["choices"][0]["message"]["content"] == "fine"
+    assert waited == [113]
+    server.replies += [(503, limited.replace("1m 51s", "2h 5m 0s"))]
+    with pytest.raises(providers.QuotaExhausted):
+        providers.complete(route, [{"role": "user", "content": "x"}])
+    until = providers.mark_exhausted(route.key_label, route.model.allowance, limited.replace("1m 51s", "2h 5m 0s"))
+    assert 7400 < until - providers.time.time() < 7600
+
+
+def test_reset_after_reads_the_forms_providers_use():
+    assert providers.reset_after("reset after 15s") == 15
+    assert providers.reset_after("(reset after 1m 51s)") == 111
+    assert providers.reset_after("reset after 2h 5m 0s") == 7500
+    assert providers.reset_after("no reset here") is None
