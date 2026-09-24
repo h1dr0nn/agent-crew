@@ -2,7 +2,7 @@
   "name": "agent-crew",
   "description": "Agent Crew for Claude Code: delegate small coding tasks to OpenAI-compatible models under enforced boundaries, verified by real builds and tests.",
   "owner": {
-    "name": "Duc Nguyen",
+    "name": "h1dr0nn",
     "url": "https://github.com/h1dr0nn"
   },
   "plugins": [
@@ -11,7 +11,7 @@
       "displayName": "Agent Crew for Claude Code",
       "source": "./",
       "description": "Conduct a crew of cheap, fast OpenAI-compatible models from Claude Code, with enforced boundaries, real verification, cross-model review and one commit per task.",
-      "version": "1.0.0"
+      "version": "1.0.1"
     }
   ]
 }

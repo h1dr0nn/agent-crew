@@ -1,10 +1,10 @@
 {
   "name": "agent-crew",
   "displayName": "Agent Crew for Claude Code",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Conduct a crew of cheap, fast OpenAI-compatible models from Claude Code: split work into small tasks, run each in its own git worktree under an enforced file boundary, verify with real builds and tests, review across models, and land each task as one commit.",
   "author": {
-    "name": "Duc Nguyen",
+    "name": "h1dr0nn",
     "url": "https://github.com/h1dr0nn"
   },
   "homepage": "https://github.com/h1dr0nn/agent-crew",
