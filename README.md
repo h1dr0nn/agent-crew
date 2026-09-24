@@ -60,7 +60,7 @@ writes the crew's configuration from them; change them in the plugin settings
 at any time. A providers file you wrote by hand always wins over the settings.
 
 Or run `/agent-crew:setup`. Claude finds the endpoint on your machine
-(9router, LiteLLM, Ollama, LM Studio, vLLM, or a hosted API you name), lists
+(common local routers and servers on their default ports, or a hosted API you name), lists
 its models, asks you which to use, writes both files and puts `crew` on your
 PATH. You only choose, and set a key variable if the endpoint needs one. Until
 crew is configured, each session start says so, and Claude runs the setup
@@ -91,20 +91,20 @@ writer = "auto"          # or a preference list: "model-a, model-b"
 reviewer = "auto"
 
 [[provider]]
-name = "router"
-base_url = "http://localhost:20128/v1"   # any OpenAI-compatible endpoint
+name = "endpoint"
+base_url = "https://api.example.com/v1"   # your OpenAI-compatible endpoint
 api_keys = ["sk-..."]                    # or api_key_envs = ["VAR"], api_key_file = "~/keys.txt"
 
 [[model]]
 id = "fast-coder"
-provider = "router"
+provider = "endpoint"
 roles = ["writer"]
 allowance = "free"       # models sharing a quota share a label
 priority = 10
 
 [[model]]
 id = "careful-reviewer"
-provider = "router"
+provider = "endpoint"
 roles = ["reviewer", "writer"]
 priority = 20
 ```

@@ -4,6 +4,13 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.1 - 2026-09-24
+
+### Changed
+- The providers template, the README example and the plugin settings speak
+  of any OpenAI-compatible endpoint (`https://api.example.com/v1`) rather
+  than one particular router, and the endpoint setting has no default.
+
 ## 1.5.0 - 2026-09-24
 
 ### Added

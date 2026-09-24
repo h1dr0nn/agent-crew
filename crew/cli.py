@@ -49,20 +49,20 @@ writer = "auto"
 reviewer = "auto"
 
 [[provider]]
-name = "router"
-base_url = "http://localhost:20128/v1"   # any OpenAI-compatible endpoint
+name = "endpoint"
+base_url = "https://api.example.com/v1"   # your OpenAI-compatible endpoint: a local router or a hosted API
 api_keys = [""]                          # paste the key between the quotes; [] if none is needed
 
 [[model]]
 id = "your-fast-coding-model"
-provider = "router"
+provider = "endpoint"
 roles = ["writer"]
 allowance = "default"    # models sharing a quota share an allowance label
 priority = 10
 
 [[model]]
 id = "your-careful-model"
-provider = "router"
+provider = "endpoint"
 roles = ["reviewer", "writer"]
 priority = 20
 '''
