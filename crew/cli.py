@@ -87,18 +87,25 @@ def _print(value) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False) if not isinstance(value, str) else value)
 
 
+IGNORED = ("prompts/", "profile.json", "providers.toml")
+
+
+def _ignore_working_files(directory: pathlib.Path) -> None:
+    """Task prompts are working files, the calibration profile measures this
+    machine's pool, and the providers file holds a key: none goes into git."""
+    ignore = directory / ".gitignore"
+    present = ignore.read_text(encoding="utf-8").split() if ignore.exists() else []
+    missing = [entry for entry in IGNORED if entry not in present]
+    if missing:
+        with open(ignore, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write("".join(f"{entry}\n" for entry in missing))
+
+
 def cmd_init(args) -> int:
     root = pathlib.Path(args.root or ".").resolve()
     path = root / config.PROJECT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Task prompts are working files, and the calibration profile measures this
-    # machine's pool rather than the repository: both stay out of git.
-    ignore = path.parent / ".gitignore"
-    present = ignore.read_text(encoding="utf-8").split() if ignore.exists() else []
-    missing = [entry for entry in ("prompts/", "profile.json") if entry not in present]
-    if missing:
-        with open(ignore, "a", encoding="utf-8", newline="\n") as handle:
-            handle.write("".join(f"{entry}\n" for entry in missing))
+    _ignore_working_files(path.parent)
     if path.exists():
         print(f"{path} already exists")
         return 0
@@ -110,15 +117,37 @@ def cmd_init(args) -> int:
     return 0
 
 
+def _init_target(scope: str | None) -> pathlib.Path:
+    """Where `crew config init` writes: this repository's `.agent-crew/`, or the
+    crew home. Without a scope, the repository when there is one."""
+    if scope == "global":
+        return config.global_providers_path()
+    try:
+        root = config.find_root()
+    except config.ConfigError:
+        if scope == "project":
+            raise config.ConfigError("not inside a repository set up for Agent Crew; run `crew init` first") from None
+        return config.global_providers_path()
+    target = root / config.PROJECT_PROVIDERS
+    _ignore_working_files(target.parent)
+    tracked = subprocess.run(["git", "-C", str(root), "ls-files", "--error-unmatch", str(target)],
+                             capture_output=True, text=True)
+    if tracked.returncode == 0:
+        raise config.ConfigError(f"{target} is tracked by git; untrack it before putting a key in it")
+    return target
+
+
 def cmd_config(args) -> int:
     path = config.providers_path()
     if args.action == "path":
-        print(path)
+        scope = "project" if config.project_providers_path() else "global"
+        print(f"{path}   ({scope})")
         return 0
     if args.action == "detect":
         _print(setup.detect())
         return 0
     if args.action == "init":
+        path = _init_target(args.scope)
         path.parent.mkdir(parents=True, exist_ok=True)
         if args.base_url:
             if not (args.force or setup.unconfigured(path)):
@@ -359,7 +388,8 @@ def setup_hint() -> str | None:
     None when crew is ready. No network: this runs at every session start."""
     path = config.providers_path()
     if not path.exists():
-        return "Agent Crew is installed but not set up yet: run /agent-crew:setup (or `crew config init`)."
+        return ("Agent Crew is installed but not set up yet: run /agent-crew:setup (it asks whether the "
+                "configuration lives in this project or is shared by all of them).")
     try:
         loaded = config.load_providers()
     except config.ConfigError as error:
@@ -387,9 +417,6 @@ def cmd_hook(args) -> int:
             # Settings entered in Claude Code's plugin settings come first; without
             # them, the providers file exists from the first session, to find and edit.
             synced = plugin_settings.sync()
-            if not config.providers_path().exists():
-                config.providers_path().parent.mkdir(parents=True, exist_ok=True)
-                config.providers_path().write_text(EXAMPLE_PROVIDERS, encoding="utf-8")
             hint = setup_hint()
         except Exception as error:  # noqa: BLE001 - a hook must never take the session down
             synced, hint = None, f"Agent Crew could not start: {error}"
@@ -546,7 +573,8 @@ def cmd_doctor(args) -> int:
            f"call the launcher by its path, or add {launcher.parent} to PATH", note=True)
     try:
         loaded = config.load_providers()
-        report(True, f"providers file {config.providers_path()}")
+        scope = "this project's, kept out of git" if config.project_providers_path() else "shared by every project"
+        report(True, f"providers file {config.providers_path()} ({scope})")
         report(not setup.unconfigured(config.providers_path()), "models chosen", "run /agent-crew:setup")
         for provider in loaded.providers.values():
             keys = provider.keys()
@@ -624,6 +652,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--writer", help="init: comma-separated writer model ids, best first")
     p.add_argument("--reviewer", help="init: comma-separated reviewer model ids, best first")
     p.add_argument("--force", action="store_true", help="init: replace a configured file")
+    p.add_argument("--scope", choices=["project", "global"],
+                   help="init: this repository's .agent-crew/ (kept out of git) or the crew home, shared by every "
+                        "repository (default: the repository when inside one)")
     p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("task", help="task worktrees")

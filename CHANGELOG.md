@@ -4,6 +4,26 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.5.0 - 2026-09-24
+
+### Added
+- The configuration can live in the project: `.agent-crew/providers.toml`,
+  kept out of git automatically because it holds the key, and found from task
+  worktrees too. It wins over the shared `~/.agent-crew/providers.toml`.
+- The first `/agent-crew:setup` asks where the configuration goes;
+  `crew config init --scope project|global` writes either.
+- `/agent-crew:config` says which file is in use, opens it in the editor, or
+  moves it between the project and the shared place. `crew config path` and
+  `crew doctor` name the scope.
+
+### Changed
+- A session start no longer creates a template in the crew home; the first
+  setup chooses the place.
+
+### Fixed
+- A folder under the home directory is never taken for a project because the
+  crew home, `~/.agent-crew`, is above it: a project needs its `project.toml`.
+
 ## 1.4.1 - 2026-09-24
 
 ### Changed

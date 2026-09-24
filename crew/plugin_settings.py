@@ -121,7 +121,11 @@ def sync(environ: dict[str, str] | None = None) -> str | None:
     chosen = options(environ)
     if not chosen["endpoint"]:
         return None
-    path = config.providers_path()
+    project = config.project_providers_path()
+    if project is not None:
+        # The repository's own file is the one in use; the settings are for the shared one.
+        return f"Agent Crew uses this project's {project}; the plugin settings apply to projects without one."
+    path = config.global_providers_path()
     if path.exists() and not managed(path) and not setup.unconfigured(path):
         # A providers file written by hand wins over the settings; say so, since
         # otherwise the settings look ignored for no reason.

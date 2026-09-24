@@ -1,7 +1,7 @@
 {
   "name": "agent-crew",
   "displayName": "Agent Crew for Claude Code",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Conduct a crew of cheap, fast OpenAI-compatible models from Claude Code: split work into small tasks, run each in its own git worktree under an enforced file boundary, verify with real builds and tests, review across models, and land each task as one commit.",
   "author": {
     "name": "h1dr0n",

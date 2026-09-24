@@ -2,12 +2,12 @@
 
 Two files, because they answer different questions:
 
-* ``providers.toml`` (per user, in the crew home) says which model endpoints
-  exist, where their keys come from, and which models may play which role.
-  It never holds a key itself: keys come from environment variables or from a
-  key file, so the configuration can be shared and the keys cannot leak with it.
-* ``.agent-crew/project.toml`` (per repository) says how that repository is
-  built and tested, where task worktrees go, and what they share.
+* ``providers.toml`` says which model endpoint to use, its key, and which
+  models may play which role. It lives either in the repository, as
+  ``.agent-crew/providers.toml`` (kept out of git, like a ``.env``), or in the
+  crew home, shared by every repository; the repository's own wins.
+* ``.agent-crew/project.toml`` (per repository, committed) says how that
+  repository is built and tested, where task worktrees go, and what they share.
 
 The crew home is ``$AGENT_CREW_HOME``, or ``~/.agent-crew``.
 """
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import subprocess
 import tomllib
 from dataclasses import dataclass, field
 
@@ -33,8 +34,47 @@ def state_dir() -> pathlib.Path:
     return path
 
 
-def providers_path() -> pathlib.Path:
+PROJECT_PROVIDERS = pathlib.Path(".agent-crew") / "providers.toml"
+
+
+def global_providers_path() -> pathlib.Path:
+    """The providers file shared by every repository: in the crew home."""
     return home() / "providers.toml"
+
+
+def _main_worktree(start: pathlib.Path) -> pathlib.Path | None:
+    """The main checkout of the repository `start` is in, so a task worktree
+    (where the git-ignored providers file does not exist) finds the project's."""
+    try:
+        done = subprocess.run(["git", "-C", str(start), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    common = done.stdout.strip()
+    return pathlib.Path(common).parent if done.returncode == 0 and common else None
+
+
+def project_providers_path(start: pathlib.Path | None = None) -> pathlib.Path | None:
+    """The repository's own providers file, if it has one: `.agent-crew/providers.toml`
+    in the nearest directory with a `.agent-crew`, or in the repository's main checkout."""
+    here = (start or pathlib.Path.cwd()).resolve()
+    # A project is a directory with `.agent-crew/project.toml`, not merely one
+    # with `.agent-crew`: the crew home is `~/.agent-crew`, so every path under
+    # the home directory would otherwise take the shared file for a project's.
+    candidates = [directory for directory in (here, *here.parents) if (directory / PROJECT_FILE).is_file()]
+    main = _main_worktree(here)
+    if main is not None and (main / PROJECT_FILE).is_file():
+        candidates.append(main)
+    for directory in candidates:
+        path = directory / PROJECT_PROVIDERS
+        if path.is_file():
+            return path
+    return None
+
+
+def providers_path(start: pathlib.Path | None = None) -> pathlib.Path:
+    """The providers file in use: the repository's own, else the shared one."""
+    return project_providers_path(start) or global_providers_path()
 
 
 class ConfigError(Exception):

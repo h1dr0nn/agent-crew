@@ -70,9 +70,20 @@ says what is still missing.
 
 ## Configure providers
 
-`~/.agent-crew/providers.toml` (created at the first session start;
-`crew config init --base-url URL --writer A,B --reviewer C` fills it in, and
-`crew config detect` shows what answers on this machine):
+The configuration is one file, `providers.toml`, in one of two places, and
+the first setup asks which:
+
+- **This project:** `.agent-crew/providers.toml` in the repository, next to
+  `project.toml`. It holds the key, so crew keeps it out of git automatically,
+  like a `.env`, and task worktrees still find it.
+- **Shared:** `~/.agent-crew/providers.toml`, used by every repository that
+  has no file of its own.
+
+A project's file always wins. `crew config path` (or `/agent-crew:config`)
+says which one is in use and can open it or move it between the two;
+`crew config init --scope project|global --base-url URL --writer A,B
+--reviewer C` writes it, and `crew config detect` shows what answers on this
+machine:
 
 ```toml
 [defaults]
@@ -167,6 +178,7 @@ Invoke as `/agent-crew:<name>`.
 
 | Skill | Does |
 | --- | --- |
+| `config` | which configuration file is in use; open it, or move it between the project and the shared place |
 | `setup` | the providers file, key variables, this repository's project file; `--enable-review-gate` |
 | `doctor` | what is missing, and the fix for each |
 | `plan` | waves of small tasks, no two in a wave writing the same file, written into the repository |

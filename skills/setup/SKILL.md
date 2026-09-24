@@ -52,15 +52,20 @@ tool); it needs nothing on PATH.
    writer models (fast coding models) and the reviewer model (a careful model
    from a different family than the writers). Recommend a choice from the
    names, labelled `(Recommended)`, and allow several writers, best first.
-3. **Write the one config file** (`~/.agent-crew/providers.toml`: endpoint,
-   key slot and the model pool):
+3. **Where it lives.** Unless a providers file is already in use (the
+   doctor output names it), ask once with `AskUserQuestion` where the
+   configuration goes: **this project** (`.agent-crew/providers.toml`, kept out
+   of git automatically, like a `.env`; recommended when inside a repository
+   set up for crew) or **shared** (the crew home, used by every repository
+   without its own). Then write it there:
 
    ```bash
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/crew" config init --name <provider> --base-url <url> --writer "<a,b>" --reviewer "<c>"
+   sh "${CLAUDE_PLUGIN_ROOT}/scripts/crew" config init --scope <project|global> --name <provider> --base-url <url> --writer "<a,b>" --reviewer "<c>"
    ```
 
    It replaces the file only while it is still the template; if the user has
-   a configured file, ask before adding `--force`.
+   a configured file, ask before adding `--force`. `/agent-crew:config` later
+   opens it or moves it between the two places.
 4. **Key.** If the endpoint needs one, the file has `api_keys = [""]`. Never
    type, store or repeat a key yourself, even one the user pastes into chat
    (tell them to replace it, since chat keeps it). Give them the file's path

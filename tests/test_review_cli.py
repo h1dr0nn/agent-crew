@@ -207,7 +207,9 @@ def test_session_start_says_what_setup_is_missing(crew_home, monkeypatch, capsys
     assert cli.main(["hook", "session-start"]) == 0
     assert "/agent-crew:setup" in json.loads(capsys.readouterr().out)["systemMessage"]
     assert (crew_home / "bin" / "crew").exists()
-    assert cli.main(["hook", "session-start"]) == 0  # the template exists now; models still unchosen
+    assert cli.main(["config", "init", "--scope", "global"]) == 0  # the template; models still unchosen
+    capsys.readouterr()
+    assert cli.main(["hook", "session-start"]) == 0
     assert "models chosen" in json.loads(capsys.readouterr().out)["systemMessage"]
 
 
@@ -270,11 +272,11 @@ def test_init_reads_the_repository(tmp_path, monkeypatch, capsys):
     assert "prompts/" in ignored and "profile.json" in ignored
 
 
-def test_session_start_creates_the_providers_file_and_tells_claude(crew_home, capsys):
+def test_session_start_asks_where_the_configuration_goes(crew_home, capsys):
     assert cli.main(["hook", "session-start"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert (crew_home / "providers.toml").exists()
-    assert "/agent-crew:setup" in out["systemMessage"]
+    assert not (crew_home / "providers.toml").exists()  # the first setup chooses project or shared
+    assert "this project or is shared" in out["systemMessage"]
     assert "agent-crew:setup" in out["hookSpecificOutput"]["additionalContext"]
 
 
