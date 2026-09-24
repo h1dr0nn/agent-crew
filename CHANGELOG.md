@@ -4,6 +4,19 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.0 - 2026-09-24
+
+### Added
+- Plugin settings: when the plugin is enabled, Claude Code asks for the
+  endpoint, the API key (stored in the system's secure storage) and,
+  optionally, writer and reviewer models. Each session start writes the
+  crew's configuration from them, and only when they changed.
+- With no models named, they are chosen from the endpoint's list: models
+  whose names say fast or code write, embedding and audio models are left
+  out, and the reviewer comes from a different family than the writers.
+- A providers file written by hand still wins, and the session start says so
+  when settings are present.
+
 ## 1.3.3 - 2026-09-24
 
 ### Fixed

@@ -1,7 +1,7 @@
 {
   "name": "agent-crew",
   "displayName": "Agent Crew for Claude Code",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "description": "Conduct a crew of cheap, fast OpenAI-compatible models from Claude Code: split work into small tasks, run each in its own git worktree under an enforced file boundary, verify with real builds and tests, review across models, and land each task as one commit.",
   "author": {
     "name": "h1dr0n",
@@ -17,5 +17,29 @@
     "openai-compatible",
     "delegation",
     "code-review"
-  ]
+  ],
+  "userConfig": {
+    "endpoint": {
+      "type": "string",
+      "title": "Endpoint URL",
+      "description": "Your OpenAI-compatible endpoint, ending in /v1: a local router such as 9router, or a hosted API.",
+      "default": "http://localhost:20128/v1"
+    },
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "sensitive": true,
+      "description": "The endpoint's key. Leave it empty if the endpoint needs none. Kept in your system's secure storage."
+    },
+    "writer_models": {
+      "type": "string",
+      "title": "Writer models (optional)",
+      "description": "Models that write code, comma-separated, best first. Leave empty to have them chosen from the endpoint's list."
+    },
+    "reviewer_models": {
+      "type": "string",
+      "title": "Reviewer models (optional)",
+      "description": "Models that review, comma-separated, best first; ideally a different family from the writers. Leave empty to choose automatically."
+    }
+  }
 }

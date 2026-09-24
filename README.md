@@ -51,7 +51,15 @@ Requires Python 3.11 or later and git. On each session start the plugin writes
 a `crew` launcher to `~/.agent-crew/bin` (`crew.cmd` on Windows); add that
 directory to your PATH, or call the launcher by its path.
 
-Then run `/agent-crew:setup`. Claude finds the endpoint on your machine
+The quickest setup is the plugin's own settings: when you enable the plugin,
+Claude Code asks for the endpoint URL, the API key (kept in your system's
+secure storage) and, optionally, the writer and reviewer models. Leave the
+models empty and they are chosen from the endpoint's own list: fast or coding
+models write, and a model from another family reviews. The next session
+writes the crew's configuration from them; change them in the plugin settings
+at any time. A providers file you wrote by hand always wins over the settings.
+
+Or run `/agent-crew:setup`. Claude finds the endpoint on your machine
 (9router, LiteLLM, Ollama, LM Studio, vLLM, or a hosted API you name), lists
 its models, asks you which to use, writes both files and puts `crew` on your
 PATH. You only choose, and set a key variable if the endpoint needs one. Until

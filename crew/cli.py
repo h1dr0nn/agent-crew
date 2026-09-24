@@ -34,7 +34,7 @@ import subprocess
 import sys
 import time
 
-from crew import __version__, agent, calibrate, checks, config, land, metrics, pack, procs, providers, review, setup, worktree
+from crew import __version__, agent, calibrate, checks, config, land, metrics, pack, plugin_settings, procs, providers, review, setup, worktree
 
 EXAMPLE_PROVIDERS = '''# Agent Crew: the endpoint, its key and the model pool, all in this one file.
 # It lives in your home directory, outside every repository. Several keys are
@@ -384,18 +384,23 @@ def cmd_hook(args) -> int:
     if args.event == "session-start":
         try:
             cmd_shim(argparse.Namespace(quiet=True, path=False))
-            # The providers file exists from the first session, so there is a file to find and edit.
+            # Settings entered in Claude Code's plugin settings come first; without
+            # them, the providers file exists from the first session, to find and edit.
+            synced = plugin_settings.sync()
             if not config.providers_path().exists():
                 config.providers_path().parent.mkdir(parents=True, exist_ok=True)
                 config.providers_path().write_text(EXAMPLE_PROVIDERS, encoding="utf-8")
             hint = setup_hint()
         except Exception as error:  # noqa: BLE001 - a hook must never take the session down
-            hint = f"Agent Crew could not start: {error}"
-        if hint:
+            synced, hint = None, f"Agent Crew could not start: {error}"
+        message = " ".join(part for part in (synced, hint) if part)
+        if message:
             sys.stdout.reconfigure(encoding="utf-8")
-            print(json.dumps({"systemMessage": hint, "hookSpecificOutput": {
-                "hookEventName": "SessionStart", "additionalContext": SETUP_CONTEXT + " Current state: " + hint}},
-                ensure_ascii=False))
+            output: dict = {"systemMessage": message}
+            if hint:
+                output["hookSpecificOutput"] = {"hookEventName": "SessionStart",
+                                                "additionalContext": SETUP_CONTEXT + " Current state: " + hint}
+            print(json.dumps(output, ensure_ascii=False))
         return 0
     try:
         event = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")

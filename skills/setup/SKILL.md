@@ -21,6 +21,11 @@ Raw arguments: `$ARGUMENTS`
 Run crew as `sh "${CLAUDE_PLUGIN_ROOT}/scripts/crew" <command>` (the Bash
 tool); it needs nothing on PATH.
 
+0. **Plugin settings first.** If the doctor output above says the
+   configuration was written from the plugin settings, setup is done: run the
+   probe (step 5) and the repository steps (6 and 7) only. Otherwise suggest,
+   in one line, that the endpoint, key and models can also be entered in the
+   plugin's settings in Claude Code, where the key is stored securely.
 1. **Endpoint.** Use the URL in the arguments if one was given. Otherwise use
    an endpoint above whose status is `ok` or `needs-key`, preferring one
    already configured. If none answers, ask the user once which endpoint they
