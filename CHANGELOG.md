@@ -8,6 +8,8 @@ All notable changes to Agent Crew for Claude Code. The format follows
 
 ### Changed
 - The plugin and marketplace author is shown as h1dr0nn.
+- At session start the plugin says what setup is still missing (no providers
+  file, model ids not set, no API key found) instead of staying silent.
 
 ## 1.0.0 - 2026-09-24
 

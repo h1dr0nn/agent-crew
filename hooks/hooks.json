@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/crew\" shim --quiet",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/crew\" hook session-start",
             "timeout": 20
           }
         ]

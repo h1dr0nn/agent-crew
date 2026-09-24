@@ -200,3 +200,19 @@ def test_cancel_kills_a_live_worker_that_does_not_stop_by_itself(repo, capsys):
     finally:
         if child.poll() is None:
             child.kill()
+
+
+def test_session_start_says_what_setup_is_missing(crew_home, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(b"{}")))
+    assert cli.main(["hook", "session-start"]) == 0
+    assert "/agent-crew:setup" in json.loads(capsys.readouterr().out)["systemMessage"]
+    assert (crew_home / "bin" / "crew").exists()
+    assert cli.main(["config", "init"]) == 0
+    capsys.readouterr()
+    assert cli.main(["hook", "session-start"]) == 0
+    assert "set the model ids" in json.loads(capsys.readouterr().out)["systemMessage"]
+
+
+def test_session_start_is_quiet_when_ready(providers_file, capsys):
+    assert cli.main(["hook", "session-start"]) == 0
+    assert capsys.readouterr().out == ""

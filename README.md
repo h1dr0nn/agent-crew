@@ -51,7 +51,8 @@ Requires Python 3.11 or later and git. On each session start the plugin writes
 a `crew` launcher to `~/.agent-crew/bin` (`crew.cmd` on Windows); add that
 directory to your PATH, or call the launcher by its path.
 
-Then run `/agent-crew:setup`, or do it by hand as below. `/agent-crew:doctor`
+Until it is configured, each session start tells you what is missing. Run
+`/agent-crew:setup`, or do it by hand as below. `/agent-crew:doctor`
 says what is still missing.
 
 ## Configure providers

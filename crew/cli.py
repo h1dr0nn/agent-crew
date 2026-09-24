@@ -325,9 +325,40 @@ def cmd_gate(args) -> int:
     return 0
 
 
+def setup_hint() -> str | None:
+    """What the user still has to do before workers can run, in one line, or
+    None when crew is ready. No network: this runs at every session start."""
+    path = config.providers_path()
+    if not path.exists():
+        return "Agent Crew is installed but not set up yet: run /agent-crew:setup (or `crew config init`)."
+    try:
+        loaded = config.load_providers()
+    except config.ConfigError as error:
+        return f"Agent Crew: {path} has a problem: {error}. Run /agent-crew:doctor."
+    unset = [m.id for m in loaded.models if m.id.upper().startswith(("SET-ME", "YOUR-"))]
+    if unset:
+        return f"Agent Crew: set the model ids in {path} ({', '.join(unset)}), then run /agent-crew:doctor."
+    keyless = [p.name for p in loaded.providers.values() if not p.keys()]
+    if keyless:
+        return (f"Agent Crew: no API key found for {', '.join(keyless)}; set the variables named in {path}, "
+                "restart Claude Code, then run /agent-crew:doctor.")
+    return None
+
+
 def cmd_hook(args) -> int:
-    """Claude Code hooks. `stop` reads the Stop event on stdin and prints a
-    decision. It always exits 0: a gate that fails must not wedge the session."""
+    """Claude Code hooks. `session-start` refreshes the launcher and says what
+    setup is still missing. `stop` reads the Stop event on stdin and prints a
+    decision. Both exit 0: a failing hook must not wedge the session."""
+    if args.event == "session-start":
+        try:
+            cmd_shim(argparse.Namespace(quiet=True))
+            hint = setup_hint()
+        except Exception as error:  # noqa: BLE001 - a hook must never take the session down
+            hint = f"Agent Crew could not start: {error}"
+        if hint:
+            sys.stdout.reconfigure(encoding="utf-8")
+            print(json.dumps({"systemMessage": hint}, ensure_ascii=False))
+        return 0
     try:
         event = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -535,7 +566,7 @@ def parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_gate)
 
     p = sub.add_parser("hook", help="used by the plugin's hooks")
-    p.add_argument("event", choices=["stop"])
+    p.add_argument("event", choices=["session-start", "stop"])
     p.set_defaults(func=cmd_hook)
 
     p = sub.add_parser("land", help="land a task as one commit")
