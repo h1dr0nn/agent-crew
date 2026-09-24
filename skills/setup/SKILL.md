@@ -23,9 +23,21 @@ tool); it needs nothing on PATH.
 
 0. **Plugin settings first.** If the doctor output above says the
    configuration was written from the plugin settings, setup is done: run the
-   probe (step 5) and the repository steps (6 and 7) only. Otherwise suggest,
-   in one line, that the endpoint, key and models can also be entered in the
-   plugin's settings in Claude Code, where the key is stored securely.
+   probe (step 5) and the repository steps (6 and 7) only. Otherwise offer
+   the settings as the simplest way: they keep the key in the system's secure
+   storage, and Claude Code shows their form only when the plugin is
+   installed, so give the user this one command to run in their own terminal
+   (they type the key; you never do), with the endpoint filled in:
+
+   ```bash
+   claude plugin install agent-crew@agent-crew --config endpoint=<url> --config api_key=<key>
+   ```
+
+   Models are chosen from the endpoint when none are named; to pin them, add
+   `--config writer_models=<a,b> --config reviewer_models=<c>`. A providers
+   file written by hand takes precedence, so it must be removed or renamed for
+   the settings to apply; then a new session writes the configuration. If the
+   user prefers not to, continue below.
 1. **Endpoint.** Use the URL in the arguments if one was given. Otherwise use
    an endpoint above whose status is `ok` or `needs-key`, preferring one
    already configured. If none answers, ask the user once which endpoint they

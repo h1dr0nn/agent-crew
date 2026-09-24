@@ -4,6 +4,13 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.4.1 - 2026-09-24
+
+### Changed
+- `/agent-crew:setup` offers the plugin settings first and gives the one
+  command that sets them, key included, since Claude Code shows their form
+  only at install.
+
 ## 1.4.0 - 2026-09-24
 
 ### Added
