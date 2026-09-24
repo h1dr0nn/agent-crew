@@ -51,13 +51,20 @@ Requires Python 3.11 or later and git. On each session start the plugin writes
 a `crew` launcher to `~/.agent-crew/bin` (`crew.cmd` on Windows); add that
 directory to your PATH, or call the launcher by its path.
 
-Until it is configured, each session start tells you what is missing. Run
-`/agent-crew:setup`, or do it by hand as below. `/agent-crew:doctor`
+Then run `/agent-crew:setup`. Claude finds the endpoint on your machine
+(9router, LiteLLM, Ollama, LM Studio, vLLM, or a hosted API you name), lists
+its models, asks you which to use, writes both files and puts `crew` on your
+PATH. You only choose, and set a key variable if the endpoint needs one. Until
+crew is configured, each session start says so, and Claude runs the setup
+itself when you ask for crew work. The files it writes are described below if
+you prefer to edit them. `/agent-crew:doctor`
 says what is still missing.
 
 ## Configure providers
 
-`crew config init` writes `~/.agent-crew/providers.toml`:
+`~/.agent-crew/providers.toml` (created at the first session start;
+`crew config init --base-url URL --writer A,B --reviewer C` fills it in, and
+`crew config detect` shows what answers on this machine):
 
 ```toml
 [defaults]
@@ -84,7 +91,7 @@ priority = 20
 ```
 
 Keys never go in this file: name the environment variables that hold them, or
-a key file with one key per line. Several keys on one provider are used in
+a key file with one key per line; `api_key_envs = []` means no key. Several keys on one provider are used in
 turn. `crew config test` probes every route and records its latency; `auto`
 orders models by priority, then by measured latency. `crew config show` prints
 the route chain each role will use.
@@ -94,7 +101,9 @@ opinion rather than the author reading its own work.
 
 ## Configure a repository
 
-`crew init` writes `.agent-crew/project.toml`; commit it.
+`crew init` writes `.agent-crew/project.toml` from what the repository has
+(Cargo, npm scripts, pyproject, go.mod, heavy ignored directories); check the
+verify commands and commit it.
 
 ```toml
 branch = "main"
@@ -183,7 +192,7 @@ stop costs one reviewer request and its wait.
 | Command | Does |
 | --- | --- |
 | `crew init` | write `.agent-crew/project.toml` |
-| `crew config init\|show\|test\|path` | the providers file |
+| `crew config init\|show\|test\|path\|detect` | the providers file; `detect` finds endpoints and models |
 | `crew task new\|rm\|list NAME` | one worktree per task, shared dirs linked |
 | `crew run PROMPT --task NAME --owns GLOBS --verify KIND` | run a worker (`-` reads the prompt from stdin, `--new-task` creates the worktree) |
 | `crew result [NAME]` | a finished run's outcome and summary |
@@ -198,7 +207,7 @@ stop costs one reviewer request and its wait.
 | `crew metrics LOG` | a run's time and token summary |
 | `crew template [NAME]` | list or print the built-in templates |
 | `crew doctor` | check the whole setup |
-| `crew shim` | rewrite the launcher |
+| `crew shim [--path]` | rewrite the launcher; `--path` puts it on PATH |
 
 ## Develop
 

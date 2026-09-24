@@ -51,7 +51,10 @@ class Provider:
 
     def keys(self) -> list[tuple[str, str]]:
         """Every key this provider can use, as (label, key). The label names the
-        key in state and logs without revealing it."""
+        key in state and logs without revealing it. A provider that names no
+        key at all (a local router without auth) has one empty key."""
+        if not self.key_envs and not self.key_file:
+            return [("no-key", "")]
         found: list[tuple[str, str]] = []
         for var in self.key_envs:
             value = os.environ.get(var) or _windows_user_env(var)

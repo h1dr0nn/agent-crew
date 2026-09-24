@@ -207,12 +207,71 @@ def test_session_start_says_what_setup_is_missing(crew_home, monkeypatch, capsys
     assert cli.main(["hook", "session-start"]) == 0
     assert "/agent-crew:setup" in json.loads(capsys.readouterr().out)["systemMessage"]
     assert (crew_home / "bin" / "crew").exists()
-    assert cli.main(["config", "init"]) == 0
-    capsys.readouterr()
-    assert cli.main(["hook", "session-start"]) == 0
-    assert "set the model ids" in json.loads(capsys.readouterr().out)["systemMessage"]
+    assert cli.main(["hook", "session-start"]) == 0  # the template exists now; models still unchosen
+    assert "models chosen" in json.loads(capsys.readouterr().out)["systemMessage"]
 
 
 def test_session_start_is_quiet_when_ready(providers_file, capsys):
     assert cli.main(["hook", "session-start"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_config_init_writes_a_filled_file_for_a_detected_endpoint(crew_home, server, capsys):
+    assert cli.main(["config", "init"]) == 0  # the template first
+    assert cli.main(["config", "init", "--name", "local", "--base-url", server.url,
+                     "--writer", "fast,mid", "--reviewer", "careful"]) == 0
+    loaded = config.load_providers()
+    assert [(m.id, m.roles) for m in loaded.models] == [("fast", ["writer"]), ("mid", ["writer"]),
+                                                        ("careful", ["reviewer"])]
+    assert loaded.providers["local"].keys() == [("no-key", "")]
+    # A configured file is not replaced without --force.
+    assert cli.main(["config", "init", "--base-url", server.url, "--writer", "x", "--reviewer", "y"]) == 2
+    assert cli.main(["config", "init", "--base-url", server.url, "--writer", "x", "--reviewer", "y", "--force"]) == 0
+
+
+def test_a_provider_without_keys_sends_no_authorization(crew_home, server):
+    from crew import providers as providers_module
+    crew_home.mkdir(parents=True, exist_ok=True)
+    (crew_home / "providers.toml").write_text(
+        f'[[provider]]\nname = "l"\nbase_url = "{server.url}"\napi_key_envs = []\n'
+        '[[model]]\nid = "m"\nprovider = "l"\nroles = ["writer"]\n', encoding="utf-8")
+    route = providers_module.routes(config.load_providers(), "writer")[0]
+    server.replies += ["hello"]
+    providers_module.complete(route, [{"role": "user", "content": "hi"}])
+    assert server.requests[-1]["auth"] is None
+
+
+def test_detect_reports_endpoints_and_their_models(crew_home, monkeypatch):
+    from crew import setup
+    monkeypatch.setattr(setup, "KNOWN_ENDPOINTS", [("down", "http://127.0.0.1:9/v1")])
+    found = setup.detect()
+    assert found == [{"name": "down", "base_url": "http://127.0.0.1:9/v1", "configured": False,
+                      "status": "down", "models": []}]
+
+
+def test_init_reads_the_repository(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "app"
+    (root / "core" / "node_modules").mkdir(parents=True)
+    (root / "core" / "node_modules" / "dep").mkdir()
+    (root / "core" / "node_modules" / "dep" / "Cargo.toml").write_text("", encoding="utf-8")  # must be ignored
+    (root / "crate").mkdir()
+    (root / "crate" / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+    (root / "package.json").write_text('{"scripts": {"lint": "eslint .", "test": "vitest"}}', encoding="utf-8")
+    (root / ".venv").mkdir()
+    git(root, "init", "-q", "-b", "trunk")
+    assert cli.main(["init", "--root", str(root)]) == 0
+    project = config.load_project(root)
+    assert project.branch == "trunk"
+    assert project.verify["rust"].startswith("cargo fmt --manifest-path crate/Cargo.toml")
+    assert project.verify["js"] == "npm run -s lint && npm run -s test -- --run"
+    assert project.shared == [".venv", "core/node_modules"]
+    assert "rust-modules" in project.checks
+    assert "prompts/" in (root / ".agent-crew" / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_session_start_creates_the_providers_file_and_tells_claude(crew_home, capsys):
+    assert cli.main(["hook", "session-start"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (crew_home / "providers.toml").exists()
+    assert "/agent-crew:setup" in out["systemMessage"]
+    assert "agent-crew:setup" in out["hookSpecificOutput"]["additionalContext"]

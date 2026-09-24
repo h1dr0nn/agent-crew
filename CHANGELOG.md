@@ -4,6 +4,25 @@ All notable changes to Agent Crew for Claude Code. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.0 - 2026-09-24
+
+### Added
+- Setup without hand-editing: `/agent-crew:setup` finds the endpoint on this
+  machine (9router, LiteLLM, Ollama, LM Studio, vLLM), lists its models, asks
+  which to use and writes the providers file. Claude runs it by itself when
+  crew work is asked for before crew is configured.
+- `crew config detect`, and `crew config init --base-url ... --writer ... --reviewer ...`.
+- `crew init` reads the repository and writes verify commands (Rust, npm,
+  Python, Go), shared directories and checks from what it finds.
+- `crew shim --path` puts `crew` on the user's PATH.
+- `crew doctor` checks that each endpoint answers and offers the configured models.
+- A provider with no key configured (a local router without auth) works
+  without one.
+
+### Changed
+- The providers file is created at the first session start.
+- The author is shown as h1dr0n.
+
 ## 1.0.1 - 2026-09-24
 
 ### Changed

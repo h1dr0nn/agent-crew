@@ -2,6 +2,7 @@
 
     crew init                         write .agent-crew/project.toml for this repository
     crew config init|show|test|path   the providers file: create, inspect, probe every route
+    crew config detect                find OpenAI-compatible endpoints on this machine and their models
     crew task new|rm|list NAME        one worktree per task
     crew run PROMPT --task NAME ...   run a worker on a task (PROMPT `-` reads stdin)
     crew result [NAME]                a finished run's outcome and summary (default: the latest)
@@ -16,7 +17,7 @@
     crew metrics LOG                  where a run's time and tokens went
     crew template [NAME]              print a built-in prompt template, or list them
     crew doctor                       check Python, git, the providers file, keys and this repository
-    crew shim                         (re)write the `crew` launcher in the crew home
+    crew shim [--path]                (re)write the `crew` launcher; --path also puts it on PATH
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ import subprocess
 import sys
 import time
 
-from crew import __version__, agent, checks, config, land, metrics, pack, procs, providers, review, worktree
+from crew import __version__, agent, checks, config, land, metrics, pack, procs, providers, review, setup, worktree
 
 EXAMPLE_PROVIDERS = '''# Agent Crew providers. Keys never go in this file: name the environment
 # variables that hold them (api_key_envs), or a file with one key per line
@@ -96,8 +97,11 @@ def cmd_init(args) -> int:
     if path.exists():
         print(f"{path} already exists")
         return 0
-    path.write_text(EXAMPLE_PROJECT.replace("{name}", root.name), encoding="utf-8")
-    print(f"wrote {path}; set [verify] and shared for this repository")
+    branch = subprocess.run(["git", "-C", str(root), "branch", "--show-current"], capture_output=True,
+                            text=True).stdout.strip() or "main"
+    path.write_text(setup.project_file(root, branch), encoding="utf-8", newline="\n")
+    print(path.read_text(encoding="utf-8"))
+    print(f"wrote {path} from what this repository has; check the [verify] commands")
     return 0
 
 
@@ -106,13 +110,23 @@ def cmd_config(args) -> int:
     if args.action == "path":
         print(path)
         return 0
+    if args.action == "detect":
+        _print(setup.detect())
+        return 0
     if args.action == "init":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if args.base_url:
+            if not (args.force or setup.unconfigured(path)):
+                raise config.ConfigError(f"{path} is already configured; pass --force to replace it")
+            text = setup.providers_file(args.name, args.base_url, args.key_env, _split(args.writer), _split(args.reviewer))
+            path.write_text(text, encoding="utf-8", newline="\n")
+            print(f"wrote {path}")
+            return cmd_config(argparse.Namespace(action="show"))
         if path.exists():
             print(f"{path} already exists")
             return 0
-        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(EXAMPLE_PROVIDERS, encoding="utf-8")
-        print(f"wrote {path}; edit it, set the key variables, then run `crew config test`")
+        print(f"wrote {path}; run /agent-crew:setup in Claude Code to fill it in, or edit it")
         return 0
     loaded = config.load_providers()
     if args.action == "show":
@@ -138,6 +152,10 @@ def cmd_config(args) -> int:
                 print(f"{'ok  ' if ok else 'FAIL'} {seconds:6.1f}s  {route.name}  {detail}")
         return 0 if ok_any else 1
     return 2
+
+
+def _split(value: str | None) -> list[str]:
+    return [v.strip() for v in (value or "").split(",") if v.strip()]
 
 
 def _task_path(args, project: config.Project) -> pathlib.Path:
@@ -335,14 +353,18 @@ def setup_hint() -> str | None:
         loaded = config.load_providers()
     except config.ConfigError as error:
         return f"Agent Crew: {path} has a problem: {error}. Run /agent-crew:doctor."
-    unset = [m.id for m in loaded.models if m.id.upper().startswith(("SET-ME", "YOUR-"))]
-    if unset:
-        return f"Agent Crew: set the model ids in {path} ({', '.join(unset)}), then run /agent-crew:doctor."
+    if setup.unconfigured(path):
+        return "Agent Crew needs its models chosen: run /agent-crew:setup (it finds your router and lists them)."
     keyless = [p.name for p in loaded.providers.values() if not p.keys()]
     if keyless:
         return (f"Agent Crew: no API key found for {', '.join(keyless)}; set the variables named in {path}, "
                 "restart Claude Code, then run /agent-crew:doctor.")
     return None
+
+
+SETUP_CONTEXT = ("Agent Crew is installed but not configured. If the user asks for crew work (delegating to "
+                 "worker models, dispatching tasks, crew reviews), run the agent-crew:setup skill first; "
+                 "it finds the endpoint and models itself and only asks the user to choose.")
 
 
 def cmd_hook(args) -> int:
@@ -351,13 +373,19 @@ def cmd_hook(args) -> int:
     decision. Both exit 0: a failing hook must not wedge the session."""
     if args.event == "session-start":
         try:
-            cmd_shim(argparse.Namespace(quiet=True))
+            cmd_shim(argparse.Namespace(quiet=True, path=False))
+            # The providers file exists from the first session, so there is a file to find and edit.
+            if not config.providers_path().exists():
+                config.providers_path().parent.mkdir(parents=True, exist_ok=True)
+                config.providers_path().write_text(EXAMPLE_PROVIDERS, encoding="utf-8")
             hint = setup_hint()
         except Exception as error:  # noqa: BLE001 - a hook must never take the session down
             hint = f"Agent Crew could not start: {error}"
         if hint:
             sys.stdout.reconfigure(encoding="utf-8")
-            print(json.dumps({"systemMessage": hint}, ensure_ascii=False))
+            print(json.dumps({"systemMessage": hint, "hookSpecificOutput": {
+                "hookEventName": "SessionStart", "additionalContext": SETUP_CONTEXT + " Current state: " + hint}},
+                ensure_ascii=False))
         return 0
     try:
         event = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
@@ -458,10 +486,19 @@ def cmd_doctor(args) -> int:
     try:
         loaded = config.load_providers()
         report(True, f"providers file {config.providers_path()}")
+        report(not setup.unconfigured(config.providers_path()), "models chosen", "run /agent-crew:setup")
         for provider in loaded.providers.values():
-            labels = [label for label, _ in provider.keys()]
-            report(bool(labels), f"provider {provider.name}: {len(labels)} key(s) found",
+            keys = provider.keys()
+            labels = [label for label, _ in keys]
+            report(bool(labels), f"provider {provider.name}: {'no key needed' if labels == ['no-key'] else f'{len(labels)} key(s) found'}",
                    f"set {' or '.join(provider.key_envs) or provider.key_file}")
+            status, models = setup.list_models(provider.base_url, keys[0][1] if keys else None)
+            report(status == "ok", f"provider {provider.name}: {provider.base_url} {status}"
+                   + (f", {len(models)} models" if models else ""),
+                   "start it, or fix base_url" if status == "down" else "the key was refused")
+            missing = [m.id for m in loaded.models if m.provider == provider.name and models and m.id not in models]
+            report(not missing, f"provider {provider.name}: every configured model is offered",
+                   f"not offered: {', '.join(missing)}")
         for role in ("writer", "reviewer"):
             chain = providers.routes(loaded, role)
             report(bool(chain), f"{role}: {len(chain)} usable route(s)",
@@ -503,6 +540,8 @@ def cmd_shim(args) -> int:
     (bin_dir / "crew.cmd").write_text(f'@echo off\r\n"{sys.executable}" {windows_target} %*\r\n', encoding="utf-8", newline="")
     if not args.quiet:
         print(f"wrote {posix} and {posix}.cmd (package at {package_root})")
+    if getattr(args, "path", False):
+        print(setup.add_to_path(bin_dir))
     return 0
 
 
@@ -516,7 +555,13 @@ def parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_init)
 
     p = sub.add_parser("config", help="the providers file")
-    p.add_argument("action", choices=["init", "show", "test", "path"])
+    p.add_argument("action", choices=["init", "show", "test", "path", "detect"])
+    p.add_argument("--base-url", help="init: write a file for this endpoint (see `crew config detect`)")
+    p.add_argument("--name", default="router", help="init: the provider's name")
+    p.add_argument("--key-env", help="init: the environment variable holding the key (omit for no key)")
+    p.add_argument("--writer", help="init: comma-separated writer model ids, best first")
+    p.add_argument("--reviewer", help="init: comma-separated reviewer model ids, best first")
+    p.add_argument("--force", action="store_true", help="init: replace a configured file")
     p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("task", help="task worktrees")
@@ -605,6 +650,7 @@ def parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("shim", help="write the crew launcher")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--path", action="store_true", help="also put the launcher's directory on the user's PATH")
     p.set_defaults(func=cmd_shim)
     return top
 

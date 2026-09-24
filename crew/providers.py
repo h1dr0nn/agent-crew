@@ -141,7 +141,9 @@ def complete(route: Route, messages: list, tools: list | None = None, timeout: i
         body["tools"] = [{"type": "function", "function": tool} for tool in tools]
         body["tool_choice"] = "auto"
     data = json.dumps(body).encode()
-    headers = {"Authorization": f"Bearer {route.key}", "Content-Type": "application/json", **route.provider.headers}
+    headers = {"Content-Type": "application/json", **route.provider.headers}
+    if route.key:
+        headers["Authorization"] = f"Bearer {route.key}"
     last = ""
     for attempt in range(retries):
         request = urllib.request.Request(f"{route.provider.base_url}/chat/completions", data, headers)
